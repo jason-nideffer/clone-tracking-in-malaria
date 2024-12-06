@@ -1,0 +1,218 @@
+```{r, echo=FALSE}
+library(Seurat)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+files.sources = list.files("../scRepertoire/R")
+files.sources = paste("../scRepertoire/R/", files.sources, sep="")
+sapply(files.sources, source)
+```
+
+```{r}
+# Edit these parameters - this is what makes the code modular
+##########################
+
+run_directory <- "3410_T1-T4_RNA-TCR"
+rna_directories <- c('T1','T2','T3','T4') # List the RNAseq directory names you want to analyze
+tcr_directories <- c('T1','T2','T3','T4')  # List the TCR directory names you want to analyze in order that corresponds to 'cite_directories'
+timepoints <- c("T1","T2","T3","T4")
+cohortid <- "3410"
+
+##########################
+```
+
+```{r}
+individual_seurat_objects <- list()
+cohortid_timepoints <- c()
+
+for (i in 1:length(rna_directories)) {
+  
+  print(rna_directories[i])
+  
+  # Load GEX and HASH
+  rna_dir = paste('../../Raw_Sequencing', run_directory, 'GEX_HASH_10X', rna_directories[i], "filtered_feature_bc_matrix.h5", sep='/')
+  
+  data_read = Read10X_h5(rna_dir, use.names = TRUE, unique.features = TRUE) # Read data into Seurat
+  
+  seurat_object = CreateSeuratObject(counts = data_read$`Gene Expression`)
+  seurat_object[["HASH"]] <- CreateAssayObject(counts = data_read$`Antibody Capture`)
+  
+  # Normalize HASH
+  seurat_object <- NormalizeData(seurat_object, assay = "HASH", normalization.method = "CLR")
+  
+  # Label sample
+  seurat_object@meta.data$sample <- paste(cohortid, timepoints[i], sep="_")
+  seurat_object@meta.data$cohortid <- cohortid
+  seurat_object@meta.data$timepoint <- timepoints[i]
+  
+  #### Add TCR Data ####
+  # Load TCR
+  tcr_dir = paste('../../Raw_Sequencing', run_directory, 'TCR_10X', tcr_directories[i], 'filtered_contig_annotations.csv', sep='/')
+  annotations <- read.csv(tcr_dir, stringsAsFactors = F)
+  
+  # Add TCR data
+  combined_tcr <- combineTCR(annotations, samples=rna_directories[i], ID=rna_directories[i], cells ="T-AB", filterMulti = FALSE)[[1]]
+  combined_tcr$barcode <- gsub(paste0(rna_directories[i], "_", rna_directories[i], "_"), "", combined_tcr$barcode)
+  seurat_object <- combineExpression(combined_tcr, seurat_object, cloneCall="aa")
+  
+  # Add percent.mt
+  seurat_object[["percent.mt"]] <- PercentageFeatureSet(seurat_object, pattern = "^MT-")
+  
+  # Make list of sample tags
+  cohortid_timepoint <- paste(cohortid, timepoints[i], sep="_")
+  cohortid_timepoints <- c(cohortid_timepoints, cohortid_timepoint)
+  
+  # Make list of seurat objects
+  individual_seurat_objects <- append(individual_seurat_objects, seurat_object)
+
+}
+
+```
+
+```{r}
+unstimulated_cutoffs <- c(0.7, 0.65,  0.6, 1.0)
+iRBCs_cutoffs <-        c(0.7, 0.75,  0.8, 1.2)
+bead_cutoffs <-         c(0.8,  0.8,  0.8, 1.2)
+
+samples <- cohortid_timepoints
+
+for (i in 1:length(cohortid_timepoints)) {
+  
+  sample.data <- individual_seurat_objects[[i]]
+  
+  data_for_plot <- data.frame(t(GetAssayData(sample.data, assay = "HASH")))
+  colnames(data_for_plot) <- c('unstimulated','iRBCs', 'bead_stimulated')
+  
+  p <- ggplot(data_for_plot, aes(x=unstimulated, y=iRBCs)) + 
+    geom_point(alpha=0.1) +
+    
+    geom_hline(yintercept=iRBCs_cutoffs[i], linetype="dashed", color = "red") + 
+    geom_vline(xintercept=unstimulated_cutoffs[i], linetype="dashed", color = "red")
+  
+  print(p)
+  
+  q <- ggplot(data_for_plot, aes(x=unstimulated, y=bead_stimulated)) + 
+    geom_point(alpha=0.1) +
+    
+    geom_hline(yintercept=bead_cutoffs[i], linetype="dashed", color = "red") + 
+    geom_vline(xintercept=unstimulated_cutoffs[i], linetype="dashed", color = "red")
+  
+  print(q)
+  
+}
+```
+
+
+```{r}
+for (i in 1:length(cohortid_timepoints)) {
+  
+  sample.data <- individual_seurat_objects[[i]]
+  
+  data_for_subsetting <- data.frame(t(GetAssayData(sample.data, assay = "HASH")))
+  colnames(data_for_subsetting) <- c('unstimulated','iRBCs','bead_stimulated')
+  
+  barcodes_iRBCs <- row.names(subset(data_for_subsetting, 
+                                     data_for_subsetting$iRBCs > iRBCs_cutoffs[i] & 
+                                     data_for_subsetting$unstimulated < unstimulated_cutoffs[i] &
+                                     data_for_subsetting$bead_stimulated < bead_cutoffs[i])
+                              )
+  
+  barcodes_unstimulated <- row.names(subset(data_for_subsetting, 
+                                     data_for_subsetting$iRBCs < iRBCs_cutoffs[i] & 
+                                     data_for_subsetting$unstimulated > unstimulated_cutoffs[i] &
+                                     data_for_subsetting$bead_stimulated < bead_cutoffs[i])
+                              )
+  
+  barcodes_beads <- row.names(subset(data_for_subsetting, 
+                                     data_for_subsetting$iRBCs < iRBCs_cutoffs[i] & 
+                                     data_for_subsetting$unstimulated < unstimulated_cutoffs[i] &
+                                     data_for_subsetting$bead_stimulated > bead_cutoffs[i])
+                              )
+  
+  sample.data@meta.data$stim <- 'unassigned'
+  
+  sample.data@meta.data[row.names(sample.data@meta.data) %in% barcodes_iRBCs,]$stim <- "iRBCs"
+  
+  sample.data@meta.data[row.names(sample.data@meta.data) %in% barcodes_unstimulated,]$stim <- "unstimulated"
+  
+  sample.data@meta.data[row.names(sample.data@meta.data) %in% barcodes_beads,]$stim <- "bead_stimulated"
+
+  individual_seurat_objects[[i]] <- sample.data
+  
+}
+```
+
+# Min/max features
+```{r}
+min_features <- c(500, 500, 500, 500)
+max_features <- c(5000, 5000, 5000, 5000)
+
+for (i in 1:length(cohortid_timepoints)) {
+  
+  sample.data <- individual_seurat_objects[[i]]
+  
+  data_for_plot <- sample.data@meta.data %>%
+    select(nCount_RNA,nFeature_RNA,percent.mt)
+  
+  p <- ggplot(data_for_plot, aes(x=nCount_RNA, y=nFeature_RNA)) + 
+    geom_point(alpha=0.1) +
+    
+    geom_hline(yintercept=min_features[i], linetype="dashed", color = "red") + 
+    geom_hline(yintercept=max_features[i], linetype="dashed", color = "red")
+  
+  print(p)
+}
+```
+
+# Max mito
+```{r}
+max_mito <- c(8,8,8,8)
+
+for (i in 1:length(cohortid_timepoints)) {
+  
+  sample.data <- individual_seurat_objects[[i]]
+  
+  p <- VlnPlot(sample.data, features = c("percent.mt")) +
+    
+    geom_hline(yintercept=max_mito[i], linetype="dashed", color = "red")
+  
+  print(p)
+}
+```
+
+# Fliter and Clean
+```{r}
+for (i in 1:length(cohortid_timepoints)) {
+  
+  sample.data <- individual_seurat_objects[[i]]
+  
+  num_unfiltered <- nrow(sample.data@meta.data)
+  
+  # Filter out by hashtag
+  sample.data <- subset(sample.data, 
+                        subset = stim != "unassigned")
+  
+  # Clean
+  sample.data <- subset(sample.data, 
+                        subset = nFeature_RNA > min_features[i] & nFeature_RNA < max_features[i] &  percent.mt < max_mito[i])
+  
+  num_filtered <- nrow(sample.data@meta.data)
+  print(paste(num_filtered, " of ", num_unfiltered, " cells retained."))
+  
+  individual_seurat_objects[[i]] <- sample.data
+
+}
+```
+
+
+```{r}
+## Merge
+data.combined <- merge(individual_seurat_objects[[1]], y = individual_seurat_objects[-1], add.cell.ids = cohortid_timepoints, project = cohortid)
+
+data.combined@meta.data
+```
+
+
+```{r}
+saveRDS(data.combined, file = paste("../../Seurat_Objects/rna_tcr_", cohortid, ".rds", sep=""))
+```

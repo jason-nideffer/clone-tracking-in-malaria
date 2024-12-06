@@ -1,0 +1,70 @@
+
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(harmony)
+```
+
+# Loading Seurat Object
+```{r}
+# Load combined seurat object and normalize
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_3_CD4_T_Cells/rna_tcr_cd4.rds")
+```
+
+The first experiment we ran was on subject 3394. Single-cell capture, library prep, and sequencing were performed by the Stanford Functional Genomics Core, while all subsequent experiments were performed by my own hands (sequenced by Novogene). There are very significant batch effects between the samples from individual 3394 and the samples from all other subjects. Therefore, I am removing cells from 3394 at this point, and will later use reference mapping to assign them to clusters and project them on a UMAP.
+
+# Split Seurat object
+```{r}
+rna_tcr_3394 <- subset(rna_tcr, cohortid==3394)
+rna_tcr <- subset(rna_tcr, cohortid!=3394)
+```
+
+# Normalize and save rna_tcr_3394
+```{r}
+rna_tcr <- NormalizeData(rna_tcr)
+rna_tcr_3394 <- NormalizeData(rna_tcr_3394)
+
+saveRDS(rna_tcr_3394, "../../Processed_Data/FROM_STEP_5_Scaled/rna_tcr_3394.rds")
+```
+
+```{r}
+rna_tcr <- FindVariableFeatures(rna_tcr, nfeatures = 2000)
+
+# Get genes that are included in modules
+activation_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/activation_modules.rds")
+resting_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/resting_modules.rds")
+modules <- c(activation_modules, resting_modules)
+genes_to_include <- names(modules)
+
+# Ensure that all hallmark genes are included in variable features
+var.feat <- rna_tcr@assays$RNA@var.features
+to_add <- setdiff(genes_to_include, var.feat)
+print("To add:")
+print(to_add)
+
+rna_tcr@assays$RNA@var.features <- c(var.feat, to_add)
+
+# Remove TCR genes from variable features
+quietTCRgenes <- function(sc) {
+    unwanted_genes <- "TRBV*|^TRBD*|^TRBJ*|^TRDV*|^TRDD*|^TRDJ*|^TRAV*|^TRAJ*|^TRGV*|^TRGJ*"
+    if (inherits(x=sc, what ="Seurat")) {
+        unwanted_genes <- grep(pattern = unwanted_genes, x = sc[["RNA"]]@var.features, value = TRUE)
+        sc[["RNA"]]@var.features <- sc[["RNA"]]@var.features[(sc[["RNA"]]@var.features %in% unwanted_genes)==FALSE]
+    } else {
+        #Bioconductor scran pipelines uses vector of variable genes for DR
+        unwanted_genes <- grep(pattern = unwanted_genes, x = sc, value = TRUE)
+        sc <- sc[sc %!in% unwanted_genes]
+    }
+    return(sc)
+}
+
+rna_tcr <- quietTCRgenes(rna_tcr)
+
+# Scale
+print("Scaling Data...")
+rna_tcr <- ScaleData(rna_tcr)
+
+# Save
+saveRDS(rna_tcr, "../../Processed_Data/FROM_STEP_5_Scaled/rna_tcr_scaled.rds")
+```

@@ -1,0 +1,233 @@
+```{r}
+# Load Packages
+library(Matrix)
+library(Seurat, lib.loc = "/scg/apps/software/r/4.2.2-Seurat/lib")
+```
+
+```{r}
+# Load data
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_8_UMAP/rna_tcr_UMAP-7.rds")
+mal_naive <- readRDS("../../Processed_Data/FROM_STEP_3_CD4_T_Cells/rna_tcr_cd4_MalNaive.rds")
+
+DefaultAssay(mal_naive) <- "RNA"
+mal_naive <- NormalizeData(mal_naive)
+
+# Scale multiome
+mal_naive <- FindVariableFeatures(mal_naive)
+mal_naive <- ScaleData(mal_naive)
+```
+
+```{r}
+rna_tcr_var <- rna_tcr@assays$RNA@meta.features
+rna_tcr_var <- rna_tcr_var[rna_tcr_var$vst.variable==TRUE,c("vst.mean","vst.variance")]
+  
+data.cleaned_var <- mal_naive@assays$RNA@meta.features
+data.cleaned_var <- data.cleaned_var[data.cleaned_var$vst.variable==TRUE,c("vst.mean","vst.variance")]
+
+variances <- merge(rna_tcr_var, data.cleaned_var, by="row.names")
+
+variances$var_diff <- abs(variances$vst.variance.x - variances$vst.variance.y)
+variances$mean_diff <- abs(variances$vst.mean.x - variances$vst.mean.y)
+
+hist(log10(variances$var_diff), breaks = 50) +abline(v=-0, col="blue")
+hist(log10(variances$mean_diff), breaks = 50) +abline(v=-1, col="blue")
+
+variances <- variances[log10(variances$var_diff)<(-0),] # was 0.5
+variances <- variances[log10(variances$mean_diff)<(-1),] # was 0.1
+
+features <- variances$Row.names
+```
+
+
+```{r}
+# increase future.globals.maxSize
+options(future.globals.maxSize = 4000 * 1024^2) # 4GB
+
+# Find Transfer Anchors
+anchors <- FindTransferAnchors(
+  reference = rna_tcr,
+  query = mal_naive,
+  features = features,
+  normalization.method = "LogNormalize",
+  reference.reduction = "pca",
+  k.filter = NA, # Not filtering yields better results
+  dims = 1:40
+)
+
+saveRDS(anchors, "../../Processed_Data/FROM_STEP_13_Malaria_Naive/transfer_anchors.rds")
+
+anchors <- readRDS("../../Processed_Data/FROM_STEP_13_Malaria_Naive/transfer_anchors.rds")
+
+mal_naive <- MapQuery(
+  anchorset = anchors,
+  query = mal_naive,
+  reference = rna_tcr, 
+  refdata = list(
+    cell_type = "cell_type",
+    seurat_clusters = "seurat_clusters"
+  ),
+  reference.reduction = "pca", 
+  reduction.model = "umap",
+)
+
+saveRDS(mal_naive, "../../Processed_Data/FROM_STEP_13_Malaria_Naive/rna_tcr_MalNaive_ref_mapped.rds")
+```
+
+```{r}
+RunUMAP(mal_naive, reduction.model = rna_tcr@reductions$umap, dims = 1:2)
+DimPlot(mal_naive, reduction = "ref.umap", group.by = "predicted.cell_type")
+DimPlot(mal_naive, reduction = "ref.umap", group.by = "stim")
+FeaturePlot(mal_naive, "IL21", reduction = "ref.umap")
+DimPlot(rna_tcr, reduction = "umap", raster=TRUE)
+```
+
+### Try with different cutoffs (this gets better integration)
+```{r}
+rna_tcr_var <- rna_tcr@assays$RNA@meta.features
+rna_tcr_var <- rna_tcr_var[rna_tcr_var$vst.variable==TRUE,c("vst.mean","vst.variance")]
+  
+data.cleaned_var <- mal_naive@assays$RNA@meta.features
+data.cleaned_var <- data.cleaned_var[data.cleaned_var$vst.variable==TRUE,c("vst.mean","vst.variance")]
+
+variances <- merge(rna_tcr_var, data.cleaned_var, by="row.names")
+
+variances$var_diff <- abs(variances$vst.variance.x - variances$vst.variance.y)
+variances$mean_diff <- abs(variances$vst.mean.x - variances$vst.mean.y)
+
+hist(log10(variances$var_diff), breaks = 50) +abline(v=1, col="blue")
+hist(log10(variances$mean_diff), breaks = 50) +abline(v=0, col="blue")
+
+variances <- variances[log10(variances$var_diff)<(1),] # was 0.5
+variances <- variances[log10(variances$mean_diff)<(0),] # was 0.1
+
+features <- variances$Row.names
+```
+
+```{r}
+# increase future.globals.maxSize
+options(future.globals.maxSize = 4000 * 1024^2) # 4GB
+
+# Find Transfer Anchors
+anchors <- FindTransferAnchors(
+  reference = rna_tcr,
+  query = mal_naive,
+  features = features,
+  normalization.method = "LogNormalize",
+  reference.reduction = "pca",
+  k.filter = NA, # Not filtering yields better results
+  dims = 1:40
+)
+
+saveRDS(anchors, "../../Processed_Data/FROM_STEP_13_Malaria_Naive/transfer_anchors_2.rds")
+
+anchors <- readRDS("../../Processed_Data/FROM_STEP_13_Malaria_Naive/transfer_anchors_2.rds")
+
+mal_naive <- MapQuery(
+  anchorset = anchors,
+  query = mal_naive,
+  reference = rna_tcr, 
+  refdata = list(
+    cell_type = "cell_type",
+    seurat_clusters = "seurat_clusters"
+  ),
+  reference.reduction = "pca", 
+  reduction.model = "umap",
+)
+
+saveRDS(mal_naive, "../../Processed_Data/FROM_STEP_13_Malaria_Naive/rna_tcr_MalNaive_ref_mapped_2.rds")
+```
+
+
+
+# Assign identity based on cluster (for mal_naive)
+```{r}
+mal_naive <- readRDS("../../Processed_Data/FROM_STEP_13_Malaria_Naive/rna_tcr_MalNaive_ref_mapped_2.rds")
+
+cluster_order <- c(
+  45,82,4,77,12,16,51,8,6,30,3,0,14,15,1,5,57,63,9,64,28,38,83, # Tcm
+  26,61, # Naive
+  44,25,54,22,11,73,10,33,70,17, #Th2
+  20,42,2,19,7,36,37, # Th17
+  69,48,41,53,21,52,47, # Th1 
+  27,68,32,67, # Cytotoxic Th1 
+  65,29,34,72, # Tr1
+  23,66,13,80, # Treg
+  18,56,79,55,40,75,78, # IFN-Stimulated
+  49,35,31,62,24,43,60,46,39,59,50,58,71, # TCR-Activated
+  76 # Proliferating
+  )
+
+cluster_order <- as.character(cluster_order)
+
+subsets <- c(
+  rep("Tcm", each=23),
+  rep("Naive", each=2),
+  rep("Th2", each=10),
+  rep("Th1/Th17", each=14),
+  rep("Cytotoxic Th1", each=4),
+  rep("Tr1", each=4),
+  rep("Treg", each=4),
+  rep("IFN-Stimulated", each=7),
+  rep("TCR-Activated", each=13),
+  rep("Proliferating", each=1)
+)
+
+names(subsets) <- cluster_order
+
+cluster_order_th1_th17 <- c(
+  69,48,41,53,21,52,47, # Th1 
+  20,42,2,19,7,36,37 # Th17
+  
+  )
+
+cluster_order_th1_th17 <- as.character(cluster_order_th1_th17)
+
+subsets_th1_th17 <- c(
+  rep("Th1", each=7),
+  rep("Th17", each=7)
+)
+
+names(subsets_th1_th17) <- cluster_order_th1_th17
+
+subsets_combined <- subsets[subsets!="Th1/Th17"]
+subsets_combined <- c(subsets_combined, subsets_th1_th17)
+
+for (cluster in names(subsets_combined)) {
+  
+  subset <- subsets_combined[cluster]
+  
+  mal_naive@meta.data[mal_naive@meta.data$predicted.seurat_clusters==cluster,"cell_type"] <- subset
+  
+}
+
+
+# Activation status
+mal_naive$activation_status <- "Resting"
+mal_naive@meta.data[mal_naive@meta.data$cell_type=="IFN-Stimulated","activation_status"] <- "IFN-Stimulated"
+mal_naive@meta.data[mal_naive@meta.data$cell_type=="TCR-Activated","activation_status"] <- "TCR-Activated"
+mal_naive@meta.data[mal_naive@meta.data$cell_type=="Proliferating","activation_status"] <- "Proliferating"
+
+```
+
+
+```{r}
+DimPlot(mal_naive, reduction="ref.umap", group.by="cell_type", raster=FALSE)
+DimPlot(mal_naive, reduction="ref.umap", group.by="stim", raster=FALSE)
+FeaturePlot(mal_naive, "IL10", reduction="ref.umap")
+FeaturePlot(mal_naive, "IFIT1", reduction="ref.umap", split.by="stim")
+
+
+DimPlot(subset(mal_naive, stim!="MNS"), reduction="ref.umap", group.by="stim", raster=FALSE, split.by="cohortid")
+FeaturePlot(mal_naive, "LAG3", reduction="ref.umap")
+FeaturePlot(mal_naive, "GATA3", reduction="ref.umap")
+FeaturePlot(mal_naive, "TBX21", reduction="ref.umap")
+DimPlot(rna_tcr, reduction="umap", group.by="cell_type", raster=FALSE)
+```
+
+```{r}
+saveRDS(mal_naive, "../../Processed_Data/FROM_STEP_13_Malaria_Naive/rna_tcr_MalNaive_ref_mapped_use.rds")
+```
+
+
+
+

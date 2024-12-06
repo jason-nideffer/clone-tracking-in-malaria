@@ -1,0 +1,285 @@
+
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(harmony)
+library(circlize)
+library(viridis)
+library(RColorBrewer)
+library(dplyr)
+library(ComplexHeatmap)
+```
+
+# Gene correlation matrix (all cells)
+```{r}
+# Load scaled seurat object
+rna_tcr <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-2/rna_tcr_4-2.rds")
+
+# Extract scaled data and transpose
+gex <- rna_tcr@assays$RNA@scale.data
+gex.t <- t(gex)
+
+# Correlation matrix
+print("Generating correlation matrix...")
+gene_correlation_matrix <- cor(gex.t)
+
+# Save correlation matrix
+write.csv(gene_correlation_matrix, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_correlation_matrix.csv")
+
+# Distance matrix
+print("Generating distance matrix...")
+d <- dist(gene_correlation_matrix, method = "euclidean")
+
+# Save distance matrix
+saveRDS(d, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_distance_matrix.rds")
+```
+
+# Hierarchical Clustering to get activation modules
+```{r}
+# Load scaled seurat object
+rna_tcr <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-2/rna_tcr_4-2.rds")
+
+# Load distance
+d <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_distance_matrix.rds")
+
+hc <- hclust(d, method = "ward.D2" )
+
+# Pull k=40 modules from hierarchical clustering
+modules <- cutree(hc, k = 40)
+
+# Get only TCR-activated and Interferon-stimulated
+modules <- modules[modules %in% c(1,2,3,8,10,16,30)]
+
+modules[modules==2] <- "IFN-Stimulated"
+modules[modules%in%c(1,3,8,10)] <- "TCR-Activated"
+modules[modules%in%c(16,30)] <- "Proliferating"
+
+saveRDS(modules, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/activation_modules.rds")
+```
+
+# Visualizing modules
+```{r}
+modules <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/activation_modules.rds")
+gene_correlation_matrix <- read.csv("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_correlation_matrix.csv")
+
+module_dict <- c("IFN-Stimulated"="#66c2a5",
+                 "TCR-Activated"="#abdda4",
+                 "Proliferating"="#bebebe")
+
+row.names(gene_correlation_matrix) <- gene_correlation_matrix$X
+
+genes <- intersect(names(modules), colnames(gene_correlation_matrix))
+
+modules <- modules[names(modules)%in%genes]
+
+modules <- modules[order(unlist(modules),decreasing=TRUE)]
+
+gene_correlation_matrix <- select(gene_correlation_matrix, -X)
+
+gene_correlation_matrix <- gene_correlation_matrix[names(modules), names(modules)]
+
+for_heat = as.matrix(gene_correlation_matrix)
+colnames(for_heat) = NULL
+rownames(for_heat) = NULL
+
+col <- colorRamp2(c(-0.2,-0.1,0,0.1,0.2,0.3), viridis(6))
+
+anno <- HeatmapAnnotation(Module = modules, 
+                           col = list(Module=module_dict))
+
+anno_row <- rowAnnotation(Module = modules, 
+                           col = list(Module=c(module_dict)))
+
+tiff("../../../Plots/Annotating/activation_correlation_heatmap.tiff", units="in", width=6.5, height=4, res=400)
+Heatmap(for_heat, 
+        cluster_rows=FALSE,
+        cluster_columns=FALSE,
+        top_annotation = anno,
+        right_annotation = anno_row,
+        col=col
+        )
+dev.off()
+```
+
+# Score cells
+```{r}
+scaled_gex <- GetAssayData(object = rna_tcr, assay = "RNA", slot = "scale.data")
+scaled_genes <- row.names(scaled_gex)
+
+module_df <- data.frame(row.names = colnames(scaled_gex))
+
+for ( module in  unique(modules)) {
+  
+  genes_in_module <- names(modules[modules==module])
+  
+  # Remove genes that are in the module but not included in the scaled data
+  genes_in_module_and_scaled <- Reduce(intersect,list(genes_in_module,scaled_genes))
+  
+  module_scores <- colMeans(scaled_gex[genes_in_module_and_scaled,])
+  scaled_scores <- scale(module_scores)
+  
+  module_df[,as.character(module)] <- scaled_scores
+
+}
+
+# Add resting module (i.e., not stimulated/activated/proliferating)
+module_df[,"Resting"] <- scale(rowSums(module_df)*(-1))
+
+gene_module_assay <- CreateAssayObject(data=as.matrix(t(module_df)))
+
+rna_tcr[["modules"]] <- gene_module_assay
+```
+
+# Identify activated cells
+```{r}
+# Get first module
+meta <- rna_tcr@meta.data
+meta$subset_module <- colnames(module_df)[max.col(module_df,ties.method="first")]
+
+# Get most frequent activation module per cluster
+top <- meta %>%
+  group_by(seurat_clusters, subset_module) %>%
+  summarise(n=n()) %>%
+  group_by(seurat_clusters) %>%
+  slice_max(order_by = n, n = 1) %>%
+  as.data.frame()
+
+# Get primary annotation for each cluster
+subset_annotation_df <- top %>%
+  group_by(seurat_clusters) %>%
+  slice(1)
+
+# Save annotation in new df
+subset_annotation_df <- subset_annotation_df[,c("seurat_clusters","subset_module")]
+colnames(subset_annotation_df) <- c("seurat_clusters","preliminary_activation_annotation")
+
+subset_annotation_df <- as.data.frame(subset_annotation_df)
+
+# Annotate
+rna_tcr@meta.data$preliminary_activation_annotation <- NA
+
+for (row in 1:nrow(subset_annotation_df)) {
+    
+  cluster <- subset_annotation_df[row, "seurat_clusters"]
+  annotation  <- subset_annotation_df[row, "preliminary_activation_annotation"]
+  
+  rna_tcr@meta.data[rna_tcr@meta.data$seurat_clusters==cluster, "preliminary_activation_annotation"] <- annotation
+    
+}
+
+```
+
+```{r}
+saveRDS(rna_tcr, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/rna_tcr_4-3.rds")
+```
+
+# Gene correlation matrix (only resting cells)
+```{r}
+# Load scaled seurat object
+rna_tcr <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/rna_tcr_4-3.rds")
+resting <- subset(rna_tcr, activation_annotation=="Resting")
+rna_tcr <- NULL
+
+# Extract scaled data and transpose
+gex <- resting@assays$RNA@scale.data
+gex.t <- t(gex)
+
+# Correlation matrix
+print("Generating correlation matrix...")
+gene_correlation_matrix <- cor(gex.t)
+
+# Remove NA
+gene_correlation_matrix_filled <- gene_correlation_matrix
+gene_correlation_matrix_filled[is.na(gene_correlation_matrix_filled)] <- 0
+
+check_for_ones <- rowSums(gene_correlation_matrix_filled)
+remove <- names(check_for_ones[check_for_ones==1])
+
+gene_correlation_matrix_cleaned <- gene_correlation_matrix[
+  rownames(gene_correlation_matrix) %in% remove == FALSE,
+  colnames(gene_correlation_matrix) %in% remove == FALSE]
+
+# Save correlation matrix
+write.csv(gene_correlation_matrix_cleaned, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_correlation_matrix_resting.csv")
+
+# Distance matrix
+print("Generating distance matrix...")
+d <- dist(gene_correlation_matrix_cleaned, method = "euclidean")
+
+# Save distance matrix
+saveRDS(d, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_distance_matrix_resting.rds")
+```
+
+# Hierarchical clustering to get resting modules
+```{r}
+# Load scaled seurat object
+rna_tcr <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/rna_tcr_4-3.rds")
+
+# Load distance
+d <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_distance_matrix_resting.rds")
+
+hc <- hclust(d, method = "ward.D2" )
+
+# Pull k=30 modules from hierarchical clustering
+modules <- cutree(hc, k = 30)
+
+# Get only relevant resting modules
+modules <- modules[modules %in% c(21,28,26,27,10,11,19,15,14,23,24)]
+modules[modules%in%c(21,28)] <- "Th1/Th17" 
+modules[modules%in%c(26)] <- "Cytotoxic Th1" 
+modules[modules%in%c(27,10)] <- "Tr1" 
+modules[modules==11] <- "Th2"
+modules[modules==19] <- "Treg"
+modules[modules==15] <- "Tcm"
+modules[modules==14] <- "Naive"
+modules[modules==23] <- "B Cell"
+modules[modules==24] <- "Gamma-Delta-NK-like"
+
+names(modules[modules=="Naive"])
+
+saveRDS(modules, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/resting_modules.rds")
+```
+
+# Visualizing modules
+```{r, fig.width=12, fig.height=6}
+modules <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/resting_modules.rds")
+gene_correlation_matrix <- read.csv("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/gene_correlation_matrix_resting.csv")
+
+row.names(gene_correlation_matrix) <- gene_correlation_matrix$X
+
+genes <- intersect(names(modules), colnames(gene_correlation_matrix))
+
+modules <- modules[names(modules)%in%genes]
+
+modules <- modules[order(unlist(modules),decreasing=TRUE)]
+
+gene_correlation_matrix <- select(gene_correlation_matrix, -X)
+
+gene_correlation_matrix <- gene_correlation_matrix[names(modules), names(modules)]
+
+for_heat = as.matrix(gene_correlation_matrix)
+colnames(for_heat) = NULL
+rownames(for_heat) = NULL
+
+col <- colorRamp2(c(-0.2,-0.1,0,0.1,0.2), viridis(5))
+
+anno <- HeatmapAnnotation(Module = modules, 
+                           col = list(Module=module_dict))
+
+anno_row <- rowAnnotation(Module = modules, 
+                           col = list(Module=c(module_dict)))
+
+tiff("../../../Plots/Annotating/resting_correlation_heatmap.tiff", units="in", width=7.5, height=4, res=400)
+Heatmap(for_heat, 
+        cluster_rows=FALSE,
+        cluster_columns=FALSE,
+        top_annotation = anno,
+        right_annotation = anno_row,
+        col=col
+        )
+dev.off()
+
+```
+
+

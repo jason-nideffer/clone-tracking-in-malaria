@@ -1,0 +1,662 @@
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(harmony)
+library(devtools)
+library(RColorBrewer)
+library(viridis)
+library(ggpubr)
+library(tidyverse)
+library(dplyr)
+library(phenoclone)
+ 
+# load_all('../../../../TraCR') ## This is just the source code for phenoclone package
+```
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_11_Malaria_Specific/rna_tcr_malaria_specific.rds")
+
+rna_tcr@misc$cell_type_order
+```
+
+# Example clone UMAPs
+```{r}
+group_colors <- c("#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F", "#9E0142", "#5E4FA2", "#3288BD")
+group_order <- c("Naive", "Tcm", "Th2", "Th17", "Cytotoxic Th1", "Th1", "Treg", "Tr1" )
+
+unstim <- subset(rna_tcr, (stim=="unstimulated" & UMAP_1<7 & cell_type!="TCR-Activated" & cell_type!="IFN-Stimulated" & cell_type!="Proliferating") )
+
+top_th2 <- expanded_clones(unstim, identity = "Th2")$CTaa[1]
+
+print(top_th2)
+print(nrow(unstim@meta.data[unstim$CTaa%in%c(top_th2),]))
+
+top_tcm <- expanded_clones(unstim, identity = "Tcm")$CTaa[12]
+
+print(top_tcm)
+print(nrow(unstim@meta.data[unstim$CTaa%in%c(top_tcm),]))
+
+top_cyto <- expanded_clones(unstim, identity = "Cytotoxic Th1")$CTaa[1]
+
+print(top_cyto)
+print(nrow(unstim@meta.data[unstim$CTaa%in%c(top_cyto),]))
+
+top_th17 <- expanded_clones(unstim, identity = "Th17") %>%
+  group_by(CTaa) %>%
+  summarise(count=sum(clonotype_count_per_sample)) %>%
+  arrange(-count)
+top_th17 <- top_th17$CTaa[1]
+
+print(top_th17)
+print(nrow(unstim@meta.data[unstim$CTaa%in%c(top_th17),]))
+
+top_tr1 <- expanded_clones(unstim, identity = "Tr1") %>%
+  group_by(CTaa) %>%
+  summarise(count=sum(clonotype_count_per_sample)) %>%
+  arrange(-count)
+top_tr1 <- top_tr1$CTaa[1]
+
+print(top_tr1)
+print(nrow(unstim@meta.data[unstim$CTaa%in%c(top_tr1),]))
+
+top_th1 <- expanded_clones(unstim, identity = "Th1") %>%
+  group_by(CTaa) %>%
+  summarise(count=sum(clonotype_count_per_sample)) %>%
+  arrange(-count)
+top_th1 <- top_th1$CTaa[2]
+
+print(top_th1)
+print(nrow(unstim@meta.data[unstim$CTaa%in%c(top_th1),]))
+
+top_treg <- expanded_clones(unstim, identity = "Treg") %>%
+  group_by(CTaa) %>%
+  summarise(count=sum(clonotype_count_per_sample)) %>%
+  arrange(-count)
+top_treg <- top_treg$CTaa[4]
+
+print(top_treg)
+print(nrow(unstim@meta.data[unstim$CTaa%in%c(top_treg),]))
+
+tiff("../../Plots/Figure_2/2A_th2_clone_example.tiff", units="in", width=6, height=5, res=300)
+highlight_clonotype(unstim, top_th2, highlight_size = 0.5, other_alpha = 0.05, group.by_colors = group_colors, group.by_order = group_order)
+dev.off()
+
+#tiff("../../Plots/Figure_2/2A_tcm_clone_example.tiff", units="in", width=6, height=5, res=300)
+#highlight_clonotype(unstim, top_tcm, highlight_size = 1, other_alpha = 0.05)
+#dev.off()
+
+tiff("../../Plots/Figure_2/2A_cytotoxic_th1_clone_example.tiff", units="in", width=6, height=5, res=300)
+highlight_clonotype(unstim, top_cyto, highlight_size = 0.5, other_alpha = 0.05, group.by_colors = group_colors, group.by_order = group_order)
+dev.off()
+
+tiff("../../Plots/Figure_2/2A_th17_clone_example.tiff", units="in", width=6, height=5, res=300)
+highlight_clonotype(unstim, top_th17, highlight_size = 1.5, other_alpha = 0.05, group.by_colors = group_colors, group.by_order = group_order)
+dev.off()
+
+tiff("../../Plots/Figure_2/2A_tr1_clone_example.tiff", units="in", width=6, height=5, res=300)
+highlight_clonotype(unstim, top_tr1, highlight_size = 1, other_alpha = 0.05, group.by_colors = group_colors, group.by_order = group_order)
+dev.off()
+
+tiff("../../Plots/Figure_2/2A_th1_clone_example.tiff", units="in", width=6, height=5, res=300)
+highlight_clonotype(unstim, top_th1, highlight_size = 1, other_alpha = 0.05, group.by_colors = group_colors, group.by_order = group_order)
+dev.off()
+
+tiff("../../Plots/Figure_2/2A_treg_clone_example.tiff", units="in", width=6, height=5, res=300)
+highlight_clonotype(unstim, top_treg, highlight_size = 1.5, other_alpha = 0.05, group.by_colors = group_colors, group.by_order = group_order)
+dev.off()
+```
+
+# 2B Colorbar
+```{r, fig.width=6, fig.height=6}
+data_for_color_bar <- data.frame(
+  data=c(1,0.5,1,0),
+  x=c(0,0,1,1),
+  y=c(1,0,1,0)
+)
+
+tiff("../../Plots/Figure_2/2B_colorbar.tiff", units="in", width=6, height=6, res=300)
+ggplot(data_for_color_bar, aes(x=x, y=y, fill=data)) +
+  geom_point() +
+  scale_fill_distiller(palette = "YlOrRd") +
+  theme(legend.position = "bottom", 
+        legend.key.width = unit(2.5, "cm"),
+        legend.key.height = unit(1, "cm")
+        )
+  
+dev.off()
+```
+
+# 2B Cluster clonotypes
+```{r, fig.height=6, fig.width=6}
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                     "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                     "3149 _ sort_Non", "3354 _ sort_Non")
+
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","TCR-Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","TCR-Activated","IFN-Stimulated","Proliferating")
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+family_colors <- unname(colors[c("Th2","Tcm","Th1","Th17","Cytotoxic Th1","Treg","Tr1")]) 
+
+tiff("../../Plots/Figure_2/2B_clones_clustered.tiff", units="in", width=6, height=6, res=300)
+
+clonotype_families <- cluster_clonotypes(rna_tcr, 
+                                         minimum_count = 5, 
+                                         exclude_cell_types = c("TCR-Activated","IFN-Stimulated","Proliferating"),
+                                         exclude_samples = exclude_samples,
+                                         n_families = 7,
+                                         family_colors = family_colors
+                                        )
+
+dev.off()
+
+```
+
+N=5,770 clonotypes clustered
+
+# 2C Summarize clone families with mean
+```{r}
+# Make dataframe from clone families derived from 'cluster_clonotypes'
+clone_fams_df <- as.data.frame(clonotype_families$clone_families)
+
+# Rename column and move row names to column
+colnames(clone_fams_df) <- "clone_family"
+clone_fams_df$subject_clone <- row.names(clone_fams_df)
+
+# Recover CTaa and cohortid
+clone_fams_df <- separate(data=clone_fams_df, col=subject_clone, sep="_", into=c("cohortid","alpha","beta"))
+clone_fams_df$cohortid <- as.integer(clone_fams_df$cohortid)
+clone_fams_df$CTaa <- paste(clone_fams_df$alpha, clone_fams_df$beta, sep="_")
+
+clone_fams_df <- clone_fams_df[,c("cohortid","CTaa","clone_family")]
+
+# Adding clone fams to frequency data
+clone_fams_df <- merge(clone_fams_df, clonotype_families$matrix, by="row.names", all=TRUE)
+clone_fams_df <- clone_fams_df[,-c(1)]
+```
+
+# 2C Heatmap
+```{r, fig.height=3, fig.width=3}
+box_order <- c("Th2","Tcm","Th1","Th17","Cytotoxic Th1","Treg","Tr1","Naive")
+fam_order <- c("1","2","3","4","5","6","7")
+
+# Summarizing by family
+clone_fam_means_df <- clone_fams_df %>%
+  group_by(clone_family) %>%
+  summarise(across(everything(), mean)) %>%
+  select(-c(cohortid,CTaa)) %>%
+  as.data.frame() %>%
+  pivot_longer(names_to = "cell_type", values_to = "freq", cols = box_order)
+
+clone_fam_means_df$clone_family <- as.character(clone_fam_means_df$clone_family)
+clone_fam_means_df$clone_family <- factor(clone_fam_means_df$clone_family, levels=fam_order)
+
+clone_fam_means_df$cell_type <- factor(clone_fam_means_df$cell_type, levels=box_order)
+
+tiff("../../Plots/Figure_2/2C_summary_fidelities.tiff", units="in", width=5.5, height=5, res=300)
+
+ggplot(data = clone_fam_means_df, aes(x=clone_family, y=cell_type, fill=freq)) +
+  geom_tile() + 
+  scale_fill_distiller(palette = 'YlOrRd', direction=1) +
+  geom_text(aes(label = round(freq, 2))) +
+  scale_x_discrete(labels=c("Family 1","Family 2","Family 3","Family 4","Family 5","Family 6","Family 7"), position = "top") +
+  theme_minimal() +
+  theme(
+      legend.position="none",
+      axis.text.x = element_text(size = 16, color="black", angle=45, hjust = 0),
+      axis.text.y = element_text(size = 16, color="black"),
+      plot.margin = margin(r=20)
+  ) +
+  xlab("") +
+  ylab("") 
+
+dev.off()
+  
+```
+
+# 2D Clone tracking over time
+```{r, fig.height=2, fig.width=2}
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                     "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                     "3149 _ sort_Non", "3354 _ sort_Non")
+
+cell_types <- c("Th2","Tcm","Th1","Th17","Cytotoxic Th1","Treg","Tr1")
+
+clone_fidel_over_time <- rna_tcr@meta.data %>% 
+  # Filter
+  subset(cell_type%in%c("TCR-Activated","IFN-Stimulated","Proliferating")==FALSE) %>%
+  subset(sample%in%c(exclude_samples)==FALSE) %>%
+  subset(clone_family!="Unassigned") %>%
+  # Get count of phenotype within each clonotype per sample
+  group_by(CTaa, cohortid, clone_family, sample, clonotype_freq_per_sample, cell_type) %>%
+  summarise(sum_count_id=n()) %>%
+  # Get total clonotype count
+  group_by(CTaa, cohortid, clone_family, clonotype_freq_per_sample, sample) %>%
+  mutate(sum_count=sum(sum_count_id))
+
+clone_fidel_over_time[clone_fidel_over_time$clone_family==1,"clone_family"] <- "Th2"
+clone_fidel_over_time[clone_fidel_over_time$clone_family==2,"clone_family"] <- "Tcm"
+clone_fidel_over_time[clone_fidel_over_time$clone_family==3,"clone_family"] <- "Th1"
+clone_fidel_over_time[clone_fidel_over_time$clone_family==4,"clone_family"] <- "Th17"
+clone_fidel_over_time[clone_fidel_over_time$clone_family==5,"clone_family"] <- "Cytotoxic Th1"
+clone_fidel_over_time[clone_fidel_over_time$clone_family==6,"clone_family"] <- "Treg"
+clone_fidel_over_time[clone_fidel_over_time$clone_family==7,"clone_family"] <- "Tr1"
+
+# Need to account for samples that have 0 fidelity
+clone_fidel_over_time <- clone_fidel_over_time %>%
+  group_by(CTaa, cohortid, clone_family, sample, clonotype_freq_per_sample) %>%
+  mutate(num_cell_types=n())
+
+clone_fidel_over_time <- clone_fidel_over_time[(clone_fidel_over_time$cell_type==clone_fidel_over_time$clone_family) | (clone_fidel_over_time$num_cell_types==1) , ]
+
+clone_fidel_over_time$fidelity <- clone_fidel_over_time$sum_count_id/clone_fidel_over_time$sum_count
+
+clone_fidel_over_time[(clone_fidel_over_time$cell_type!=clone_fidel_over_time$clone_family) , "fidelity"] <- 0
+
+# add days
+sample_meta <- read.csv("../../Metadata/tr1_seq_meta_samples.csv")
+days_since <- sample_meta[,c("sample","days_since_first_study_infection")]
+
+clone_fidel_over_time <- merge(clone_fidel_over_time, days_since, by="sample")
+clone_fidel_over_time[is.na(clone_fidel_over_time$days_since_first_study_infection),"days_since_first_study_infection"] <- 0
+
+# add cohortid_CTaa
+clone_fidel_over_time$id_CTaa <-  paste(clone_fidel_over_time$cohortid, clone_fidel_over_time$CTaa, sep="_")
+
+clone_fidel_over_time <- clone_fidel_over_time %>%
+  group_by(id_CTaa) %>%
+  mutate(day=days_since_first_study_infection - min(days_since_first_study_infection)) %>%
+  group_by(id_CTaa) %>%
+  mutate(max_day=max(day)) %>%
+  arrange(-max_day)
+
+clone_fidel_over_time$id_CTaa <- factor(clone_fidel_over_time$id_CTaa, levels = unique(clone_fidel_over_time$id_CTaa))
+
+# plotting
+tiff("../../Plots/Figure_2/2D_tr1_fidelity_over_time.tiff", units="in", width=3, height=6, res=300)
+ggplot(clone_fidel_over_time[clone_fidel_over_time$clone_family=="Tr1",], aes(x=day, y=id_CTaa, group=id_CTaa, color=clone_family)) +
+  geom_line(color="#3288BD", size=0.2) +
+  geom_point(aes(color=fidelity), size=0.5) +
+  scale_y_discrete(breaks=NULL) +
+  scale_color_gradient2(low="black", high="#3288BD", mid="#3288BD", midpoint=0.8)+
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=11)
+  ) +
+  ylab("Family 7 Clonotypes") + 
+  xlab("Days Tracked")
+dev.off()
+
+tiff("../../Plots/Figure_2/2D_treg_fidelity_over_time.tiff", units="in", width=3, height=6, res=300)
+ggplot(clone_fidel_over_time[clone_fidel_over_time$clone_family=="Treg",], aes(x=day, y=id_CTaa, group=id_CTaa, color=clone_family)) +
+  geom_line(color="#5E4FA2", size=0.2) +
+  geom_point(aes(color=fidelity), size=0.5) +
+  scale_y_discrete(breaks=NULL) +
+  scale_color_gradient2(low="black", high="#5E4FA2", mid="#5E4FA2", midpoint=0.8)+
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=11)
+  ) +
+  ylab("Family 6 Clonotypes") + 
+  xlab("Days Tracked")
+dev.off()
+
+tiff("../../Plots/Figure_2/2D_th2_fidelity_over_time.tiff", units="in", width=3, height=6, res=300)
+random_th2 <- unique(clone_fidel_over_time[clone_fidel_over_time$clone_family=="Th2",]$id_CTaa)
+random_th2 <- sample(random_th2, 200)
+  
+ggplot(clone_fidel_over_time[clone_fidel_over_time$id_CTaa%in%random_th2,], aes(x=day, y=id_CTaa, group=id_CTaa, color=clone_family)) +
+  geom_line(color="#FDAE61", size=0.2) +
+  geom_point(aes(color=fidelity), size=0.5) +
+  scale_y_discrete(breaks=NULL) +
+  scale_color_gradient2(low="black", high="#FDAE61", mid="#FDAE61", midpoint=0.8)+
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=11)
+  ) +
+  ylab("Family 1 Clonotypes") + 
+  xlab("Days Tracked")
+dev.off()
+
+clone_fidel_over_time[clone_fidel_over_time$id_CTaa%in%random_th2,]
+```
+
+```{r}
+unique(clone_fidel_over_time[clone_fidel_over_time$clone_family=="Tr1",c("CTaa","cohortid")])
+unique(clone_fidel_over_time[clone_fidel_over_time$clone_family=="Treg",c("CTaa","cohortid")])
+```
+
+
+# 2E Average clonotype size per family
+```{r}
+fam_colors <- c("#FDAE61","#FEE08B","#9E0142","#F46D43","#D53E4F","#5E4FA2","#3288BD")
+
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                     "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                     "3149 _ sort_Non", "3354 _ sort_Non")
+
+clone_fam_df <- rna_tcr@meta.data[rna_tcr$clone_family!="Unassigned",]
+
+clone_fam_df <- clone_fam_df[clone_fam_df$sample%in%exclude_samples==FALSE,]
+
+clone_fam_df_samples <- clone_fam_df %>%
+  group_by(CTaa, cohortid, sample, clone_family) %>%
+  summarise(sample_freq=mean(clonotype_freq_per_sample))
+
+clone_fam_df <- clone_fam_df_samples %>%
+  group_by(CTaa, cohortid, clone_family) %>%
+  summarise(mean_freq=mean(sample_freq))
+
+clone_fam_df$mean_freq <- clone_fam_df$mean_freq *100
+clone_fam_df$clone_family <- paste0("Family ", clone_fam_df$clone_family)
+
+
+clone_fam_df_bulk <- clone_fam_df %>%
+  group_by(cohortid, clone_family) %>%
+  summarise(mean_freq=mean(mean_freq),
+            n=n())
+
+clone_fam_df_bulk <- clone_fam_df_bulk[clone_fam_df_bulk$n>4,]
+
+tiff("../../Plots/Figure_2/2E_clone_fam_sizes_boxplot.tiff", units="in", width=5, height=5, res=300)
+ggplot(clone_fam_df_bulk, aes(x=clone_family, y=mean_freq, fill=clone_family)) +
+  geom_boxplot(outlier.alpha = 0, width=0.8) +
+  geom_jitter(width = 0.2) +
+  scale_fill_manual(values=fam_colors) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16, angle=45,  hjust=1, vjust=1), 
+        axis.text.y = element_text(size = 16), 
+        axis.title = element_text(size = 18)
+        ) +
+  scale_y_continuous(breaks=c(0,0.04,0.08,0.12), limits = c(0,0.12)) +
+  ylab("Average Clonotype Size\n(% of CD45RA-)") +
+  xlab("")
+dev.off()  
+```
+
+# How does clone size affect diversity? (samples aggregated if part of same clone)
+# 2F Family 1
+```{r}
+fam_1 <- rna_tcr@meta.data[rna_tcr$clone_family==1,]
+
+
+fam_1_summary <- fam_1 %>% 
+  subset(cell_type%in%c("TCR-Activated","IFN-Stimulated","Proliferating")==FALSE) %>%
+  group_by(CTaa, cohortid, cell_type) %>%
+  summarise(sum_count_id=n()) %>%
+  group_by(CTaa, cohortid) %>%
+  mutate(sum_count=sum(sum_count_id)) %>%
+  subset(cell_type=="Th2")
+  
+fam_1_summary$fidelity <- fam_1_summary$sum_count_id / fam_1_summary$sum_count
+
+fam_1_summary$log_count <- log10(fam_1_summary$sum_count)
+
+ggplot(data=fam_1_summary, aes(log_count, fidelity)) +
+  geom_point(alpha=0.1) +
+  stat_smooth(method = "lm", formula = y ~ x + I(x^2), size = 1)
+
+
+n_successes <- fam_1_summary$sum_count_id
+m_trials <- fam_1_summary$sum_count
+
+## flat probability
+# this returns a log likelihood; setting log = FALSE and multiplying returns the same , non-log result
+flat_likelihood <- function(p){
+  sum(dbinom(n_successes, m_trials, p, log = TRUE))*-1
+}
+
+no_decay_estimate <- stats4::mle(minuslog=flat_likelihood, start=list(p=0.5))
+
+p <- no_decay_estimate@fullcoef
+
+print(paste0("Most likely: ", p))
+
+mean_p <- mean(fam_1_summary$fidelity)
+
+print(paste0("Mean: ", mean_p))
+```
+
+# 2F Family 1
+```{r}
+prob_plot <- fam_1_summary %>%
+  group_by(sum_count) %>%
+  mutate(total=n())
+
+prob_plot[prob_plot$fidelity<1,"fidelity"] <- 0
+
+prob_plot <- prob_plot %>%
+  group_by(sum_count, total) %>%
+  summarise(num_1_fidelity=sum(fidelity))
+
+prob_plot$freq <- prob_plot$num_1_fidelity / prob_plot$total
+
+x_max <- max(prob_plot[prob_plot$num_1_fidelity>0,"sum_count"])
+
+prob_plot[prob_plot$freq==0,"freq"] <- 0.02
+
+# Weighted by number of observations
+for_smooth <- prob_plot
+for_smooth$not_1_fidelity <- for_smooth$total - for_smooth$num_1_fidelity
+  
+num_1_smooth <- as.data.frame(lapply(for_smooth[c("sum_count")], rep, for_smooth$num_1_fidelity))
+num_1_smooth$freq <- 1
+not_1_smooth <- as.data.frame(lapply(for_smooth[c("sum_count")], rep, for_smooth$not_1_fidelity))
+not_1_smooth$freq <- 0
+for_smooth <- rbind(num_1_smooth, not_1_smooth)
+
+tiff("../../Plots/Figure_2/2F_th2_fidel1.tiff", units="in", width=5, height=5, res=300)
+ggplot(prob_plot, aes(x=sum_count, y=freq)) +
+  geom_bar(stat="identity", fill="black", color="white", size=0.1) +
+  stat_smooth(data=for_smooth, method="glm", method.args = list(family = "binomial"), color="darkred", fill="darkred", alpha=0.1) +
+  geom_function(fun = function(x) mean_p^x, size=1) +
+  annotate("label", x=12, y=0.1, label= paste0("f(x) == ",round(mean_p,2),"^x"), size=5, parse=TRUE, alpha=0.8) + 
+  xlim(0,x_max+1) +
+  scale_x_continuous(breaks=c(4,8,16,32,64,128,256,512), limits = c(4,580), trans = "log2")+
+  coord_cartesian(ylim=c(0,1), expand = FALSE)+
+  theme_minimal() +
+  theme(axis.text = element_text(size = 14), 
+        axis.title = element_text(size = 18),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank() 
+        ) +
+  ylab("Probability Fidelity=1") +
+  xlab("Clonotype Size")
+dev.off()
+```
+
+# 2G Family 5
+```{r}
+fam_5 <- rna_tcr@meta.data[rna_tcr$clone_family==5,]
+
+
+fam_5_summary <- fam_5 %>% 
+  subset(cell_type%in%c("TCR-Activated","IFN-Stimulated","Proliferating")==FALSE) %>%
+  group_by(CTaa, cohortid, cell_type) %>%
+  summarise(sum_count_id=n()) %>%
+  group_by(CTaa, cohortid) %>%
+  mutate(sum_count=sum(sum_count_id)) %>%
+  subset(cell_type=="Cytotoxic Th1")
+  
+fam_5_summary$fidelity <- fam_5_summary$sum_count_id / fam_5_summary$sum_count
+
+fam_5_summary$log_count <- log10(fam_5_summary$sum_count)
+
+ggplot(data=fam_5_summary, aes(log_count, fidelity)) +
+  geom_point(alpha=0.1) +
+  stat_smooth(method = "lm", formula = y ~ x + I(x^2), size = 1)
+
+
+n_successes <- fam_5_summary$sum_count_id
+m_trials <- fam_5_summary$sum_count
+
+## flat probability
+# this returns a log likelihood; setting log = FALSE and multiplying returns the same , non-log result
+flat_likelihood <- function(p){
+  sum(dbinom(n_successes, m_trials, p, log = TRUE))*-1
+}
+
+no_decay_estimate <- stats4::mle(minuslog=flat_likelihood, start=list(p=0.5))
+
+p <- no_decay_estimate@fullcoef
+
+print(paste0("Most likely: ", p))
+
+mean_p <- mean(fam_5_summary$fidelity)
+
+print(paste0("Mean: ", mean_p))
+```
+
+# 2G Family 5
+```{r}
+prob_plot <- fam_5_summary %>%
+  group_by(sum_count) %>%
+  mutate(total=n())
+
+prob_plot[prob_plot$fidelity<1,"fidelity"] <- 0
+
+prob_plot <- prob_plot %>%
+  group_by(sum_count, total) %>%
+  summarise(num_1_fidelity=sum(fidelity))
+
+prob_plot$freq <- prob_plot$num_1_fidelity / prob_plot$total
+
+x_max <- max(prob_plot[prob_plot$num_1_fidelity>0,"sum_count"])
+
+# Weighted by number of observations
+for_smooth <- prob_plot
+for_smooth$not_1_fidelity <- for_smooth$total - for_smooth$num_1_fidelity
+  
+num_1_smooth <- as.data.frame(lapply(for_smooth[c("sum_count")], rep, for_smooth$num_1_fidelity))
+num_1_smooth$freq <- 1
+not_1_smooth <- as.data.frame(lapply(for_smooth[c("sum_count")], rep, for_smooth$not_1_fidelity))
+not_1_smooth$freq <- 0
+for_smooth <- rbind(num_1_smooth, not_1_smooth)
+
+# Adjust (only for visualization)
+prob_plot[prob_plot$freq==0,"freq"] <- 0.02
+
+
+tiff("../../Plots/Figure_2/2G_cytoth1_fidel1.tiff", units="in", width=5, height=5, res=300)
+ggplot(prob_plot, aes(x=sum_count, y=freq)) +
+  geom_bar(stat="identity", fill="black", color=NA) +
+  stat_smooth(data=for_smooth, method="glm", method.args = list(family = "binomial"), color="darkred", fill="darkred", alpha=0.1) +
+  geom_function(fun = function(x) mean_p^x, size=1) +
+  annotate("label", x=30, y=0.1, label= paste0("f(x) == ",round(mean_p,2),"^x"), size=5, parse=TRUE, alpha=0.8) + 
+  xlim(0,x_max+1) +
+  scale_x_continuous(breaks=c(4,8,16,32,64,128,256,512,1024), limits = c(4,1300), trans = "log2")+
+  coord_cartesian(ylim=c(0,1), expand = FALSE, clip = 'off')+
+  theme_minimal() +
+  theme(axis.text = element_text(size = 14), 
+        axis.title = element_text(size = 18),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank() 
+        ) +
+  ylab("Probability Fidelity=1") +
+  xlab("Clonotype Size")
+dev.off()
+```
+
+# 2H Family 2
+```{r}
+fam_2 <- rna_tcr@meta.data[rna_tcr$clone_family==2,]
+
+
+fam_2_summary <- fam_2 %>% 
+  subset(cell_type%in%c("TCR-Activated","IFN-Stimulated","Proliferating")==FALSE) %>%
+  group_by(CTaa, cohortid, cell_type) %>%
+  summarise(sum_count_id=n()) %>%
+  group_by(CTaa, cohortid) %>%
+  mutate(sum_count=sum(sum_count_id)) %>%
+  subset(cell_type=="Tcm")
+  
+fam_2_summary$fidelity <- fam_2_summary$sum_count_id / fam_2_summary$sum_count
+
+fam_2_summary$log_count <- log10(fam_2_summary$sum_count)
+
+ggplot(data=fam_2_summary, aes(log_count, fidelity)) +
+  geom_point(alpha=0.1) +
+  stat_smooth(method = "lm", formula = y ~ x + I(x^2), size = 1)
+
+
+n_successes <- fam_2_summary$sum_count_id
+m_trials <- fam_2_summary$sum_count
+
+## flat probability
+# this returns a log likelihood; setting log = FALSE and multiplying returns the same , non-log result
+flat_likelihood <- function(p){
+  sum(dbinom(n_successes, m_trials, p, log = TRUE))*-1
+}
+
+no_decay_estimate <- stats4::mle(minuslog=flat_likelihood, start=list(p=0.5))
+
+p <- no_decay_estimate@fullcoef
+
+print(paste0("Most likely: ", p))
+
+mean_p <- mean(fam_1_summary$fidelity)
+
+print(paste0("Mean: ", mean_p))
+```
+
+# 2H Family 2
+```{r}
+prob_plot <- fam_2_summary %>%
+  group_by(sum_count) %>%
+  mutate(total=n())
+
+prob_plot[prob_plot$fidelity<1,"fidelity"] <- 0
+
+prob_plot <- prob_plot %>%
+  group_by(sum_count, total) %>%
+  summarise(num_1_fidelity=sum(fidelity))
+
+prob_plot$freq <- prob_plot$num_1_fidelity / prob_plot$total
+
+x_max <- max(prob_plot[prob_plot$num_1_fidelity>0,"sum_count"])
+
+# Weighted by number of observations
+for_smooth <- prob_plot
+for_smooth$not_1_fidelity <- for_smooth$total - for_smooth$num_1_fidelity
+  
+num_1_smooth <- as.data.frame(lapply(for_smooth[c("sum_count")], rep, for_smooth$num_1_fidelity))
+num_1_smooth$freq <- 1
+not_1_smooth <- as.data.frame(lapply(for_smooth[c("sum_count")], rep, for_smooth$not_1_fidelity))
+not_1_smooth$freq <- 0
+for_smooth <- rbind(num_1_smooth, not_1_smooth)
+
+# Adjust (only for visualization)
+prob_plot[prob_plot$freq==0,"freq"] <- 0.02
+
+
+tiff("../../Plots/Figure_2/2H_tcm_fidel1.tiff", units="in", width=5, height=5, res=400)
+ggplot(prob_plot, aes(x=sum_count, y=freq)) +
+  geom_bar(stat="identity", fill="darkgray", color=NA) +
+  stat_smooth(data=for_smooth, method="glm", method.args = list(family = "binomial"), color="darkred", fill="darkred", alpha=0.1) +
+  geom_function(fun = function(x) 0.75^x, size=1) +
+  annotate("label", x=4, y=0.1, label= paste0("f(x) == ",round(0.75,2),"^x"), size=5, parse=TRUE, alpha=0.8) + 
+  scale_x_continuous(breaks=c(4,8,16,32,64), limits = c(4,70), trans = "log2")+
+  coord_cartesian(ylim=c(0,1), expand = FALSE, clip = 'off')+
+  theme_minimal() +
+  theme(axis.text = element_text(size = 14), 
+        axis.title = element_text(size = 18),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank() 
+        ) +
+  ylab("Probability Fidelity=1") +
+  xlab("Clonotype Size")
+dev.off()
+```

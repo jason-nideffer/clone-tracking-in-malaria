@@ -1,0 +1,561 @@
+```{r}
+# Load Packages
+library(Seurat)
+library(fgsea)
+library(data.table)
+library(harmony)
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+library(msigdbr)
+library(scales)
+library(devtools)
+library(EnhancedVolcano)
+library(tibble)
+library(ggalluvial)
+library(phenoclone)
+
+# load_all('../../../../TraCR') ## This is just the source code for phenoclone package
+```
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_11_Malaria_Specific/rna_tcr_malaria_specific.rds")
+```
+
+```{r}
+malaria_specific_clones <- unique(rna_tcr@meta.data[rna_tcr@meta.data$malaria_specific=="yes",c("cohortid","CTaa","clone_family")])
+```
+
+# Annotate activated populations (so that more cells can be used in the alluvial plots)
+```{r}
+meta <- rna_tcr@meta.data %>%
+  subset(cell_type=="TCR-Activated") %>%
+  group_by(seurat_clusters, clone_family) %>%
+  summarise(n=n())
+
+DimPlot(rna_tcr, group.by = "seurat_clusters", raster=FALSE, label=TRUE)
+
+meta
+```
+
+```{r}
+annotating_activated_clusters <- list(
+  "24"="Tcm",
+  "31"="Tcm",
+  "35"="Tcm",
+  "39"="Th17",
+  "43"="Tcm",
+  "46"="Tcm",
+  "49"="Th17",
+  "50"="Tr1",
+  "58"="Cytotoxic Th1",
+  "59"="Treg",
+  "60"="Tcm",
+  "62"="Th1",
+  "71"="Tcm"
+)
+
+rna_tcr@meta.data$cell_type.2 <- rna_tcr@meta.data$cell_type
+
+for (cluster in names(annotating_activated_clusters)) {
+  int_cluster <- as.integer(cluster)
+  rna_tcr@meta.data[rna_tcr$seurat_clusters==int_cluster, "cell_type.2"] <- annotating_activated_clusters[cluster]
+}
+
+```
+
+```{r}
+rna_tcr <- calculate_freq(rna_tcr, 
+                          clonotype_column = "CTaa", 
+                          sample_column = "sample",
+                          cell_type_column = "cell_type.2",
+                          subject_column = "cohortid",
+                          percent=TRUE)
+
+```
+
+# 5A malaria-specific clones over time for 3178
+```{r}
+alluvial_plot <- plot_freq(rna_tcr, 
+          malaria_specific_clones$CTaa[1:13],
+          c("3178_S5","3178_S6","3178_S7","3178_S8")
+          ) 
+
+tiff("../../Plots/Figure_5/5A_3178_alluvial.tiff", units="in", width=5, height=4, res=300)
+
+alluvial_plot +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 2.4), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 2.4), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=2.6, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=2.6, label= "malaria\n(day 379)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-28","7","336","386")) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-") +
+  ylim(0,2.7)
+
+dev.off()
+
+```
+
+# 5A malaria-specific clones over time for 3354
+```{r}
+alluvial_plot <- plot_freq(rna_tcr, 
+          malaria_specific_clones$CTaa[14:22],
+          c("3354_T1","3354_T2","3354_T3","3354_T4","3354_T5","3354_T6")
+          )
+
+
+tiff("../../Plots/Figure_5/5A_3354_alluvial.tiff", units="in", width=6.7, height=4, res=300)
+
+alluvial_plot +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 0.21), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 0.21), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 5.5 , y = 0, xend = 5.5, yend = 0.21), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=0.23, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=0.23, label= "malaria\n(day 61)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=5.5, y=0.23, label= "malaria\n(day 148)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-62","15","50","78","134","155")) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-") +
+  ylim(0,0.24)
+
+dev.off()
+
+```
+
+# 5A malaria-specific clones over time for 3410
+```{r}
+alluvial_plot <- plot_freq(rna_tcr, 
+          malaria_specific_clones$CTaa[23:38],
+          c("3410_T1","3410_T2","3410_T3","3410_T4")
+          )
+
+tiff("../../Plots/Figure_5/5A_3410_alluvial.tiff", units="in", width=5.3, height=4, res=300)
+
+alluvial_plot +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 1.02), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 1.02), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=1.09, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=1.09, label= "malaria\n(day 283)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-28","14","252","290")) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-") +
+  ylim(0,1.1)
+
+dev.off()
+
+```
+
+# Select only Tr1 cells for analyses to dissect their heterogeneity
+```{r}
+# Select Tr1 clusters
+rna_tcr_subset <- subset(rna_tcr, seurat_clusters %in% c("50","29","34","72","65"))
+```
+
+# Variable features, PCA for only Tr1 cells
+```{r}
+rna_tcr_subset <- FindVariableFeatures(rna_tcr_subset)
+
+# Remove TCR genes from variable features
+quietTCRgenes <- function(sc) {
+    unwanted_genes <- "TRBV*|^TRBD*|^TRBJ*|^TRDV*|^TRDD*|^TRDJ*|^TRAV*|^TRAJ*|^TRGV*|^TRGJ*"
+    if (inherits(x=sc, what ="Seurat")) {
+        unwanted_genes <- grep(pattern = unwanted_genes, x = sc[["RNA"]]@var.features, value = TRUE)
+        sc[["RNA"]]@var.features <- sc[["RNA"]]@var.features[(sc[["RNA"]]@var.features %in% unwanted_genes)==FALSE]
+    } else {
+        #Bioconductor scran pipelines uses vector of variable genes for DR
+        unwanted_genes <- grep(pattern = unwanted_genes, x = sc, value = TRUE)
+        sc <- sc[sc %!in% unwanted_genes]
+    }
+    return(sc)
+}
+
+rna_tcr_subset <- quietTCRgenes(rna_tcr_subset)
+
+rna_tcr_subset <- ScaleData(rna_tcr_subset)
+
+rna_tcr_subset <- RunPCA(rna_tcr_subset)
+
+ElbowPlot(rna_tcr_subset, ndims = 50)
+```
+
+# Reclustering with only Tr1 cells
+```{r}
+rna_tcr_subset <- RunHarmony(rna_tcr_subset, group.by.vars = "cohortid")
+
+rna_tcr_subset <- FindNeighbors(rna_tcr_subset, reduction = "harmony", dims = 1:20)
+rna_tcr_subset <- FindClusters(rna_tcr_subset, resolution = 0.5)
+
+rna_tcr_subset <- RunUMAP(rna_tcr_subset, reduction = "harmony", dims = 1:20, return.model = TRUE,
+                          min.dist=0.5, n.neighbors=300,)
+
+
+DimPlot(rna_tcr_subset, group.by = "cohortid")
+DimPlot(rna_tcr_subset, group.by = "stim")
+
+DimPlot(rna_tcr_subset, label=TRUE)
+FeaturePlot(rna_tcr_subset, "IL10")
+```
+
+# Annotate Tr1 clusters
+```{r}
+tr1_subset_identities <- c(
+  "0"="Tr1 Effector",
+  "1"="Tr1 Memory",
+  "2"="Tr1 Activated",
+  "3"="Tr1 Effector",
+  "4"="Tr1 Naive-like",
+  "5"="Tr1 Effector",
+  "6"="Tr1 Activated",
+  "7"="Tr1 Memory",
+  "8"="Tr1 Activated"
+)
+
+for (cluster in unique(rna_tcr_subset$seurat_clusters)) {
+  rna_tcr_subset@meta.data[rna_tcr_subset$seurat_clusters==cluster,"cell_type_tr1"] <- tr1_subset_identities[cluster]
+}
+
+DimPlot(rna_tcr_subset, group.by = "cell_type_tr1")
+DimPlot(rna_tcr_subset, group.by = "seurat_clusters")
+```
+
+# Save Tr1 seurat object
+```{r}
+saveRDS(rna_tcr_subset, "../../Processed_Data/FROM_ANALYSIS/Tr1_Heterogeneity/rna_tcr_tr1.rds")
+```
+
+
+### ANALYSIS ###
+
+```{r}
+rna_tcr_subset <- readRDS("../../Processed_Data/FROM_ANALYSIS/Tr1_Heterogeneity/rna_tcr_tr1.rds")
+
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_11_Malaria_Specific/rna_tcr_malaria_specific.rds")
+
+# Load sample meta
+meta <- read.csv("../../Metadata/tr1_seq_meta_samples.csv")
+```
+
+
+# 5B UMAP of Annotated Tr1 subsets
+```{r, fig.width=8, fig.height=6}
+# Get colors for cell types
+cell_to_match_color <- c("Tr1 Naive-like", "Tr1 Effector", "Tr1 Activated", "Tr1 Memory")
+
+colors <- c("#b5179e","#4cc9f0","#7400b8","#5390d9")
+names(colors) <- cell_to_match_color
+
+# Reorder colors
+ordered_cells <- cell_to_match_color
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+DefaultAssay(rna_tcr_subset) <- "RNA"
+
+tiff("../../Plots/Figure_5/5B_tr1_umap.tiff", units="in", width=6, height=4.5, res=300)
+DimPlot(rna_tcr_subset, group.by="cell_type_tr1", raster=FALSE, cols=colors)
+
+dev.off()
+```
+
+# 5C-E Feature Plots
+```{r}
+tiff("../../Plots/Figure_5/5C_tr1_umap_IL10.tiff", units="in", width=5.3, height=4.5, res=300)
+FeaturePlot(rna_tcr_subset, "IL10", order=FALSE, max.cutoff = 5)
+dev.off()
+
+tiff("../../Plots/Figure_5/5D_tr1_umap_IFNG.tiff", units="in", width=5.3, height=4.5, res=300)
+FeaturePlot(rna_tcr_subset, "IFNG", order=FALSE)
+dev.off()
+
+tiff("../../Plots/Figure_5/5E_tr1_umap_KLF2.tiff", units="in", width=5.3, height=4.5, res=300)
+FeaturePlot(rna_tcr_subset, "KLF2", order=FALSE, max.cutoff = 5)
+dev.off()
+
+```
+
+# Differential gene expression
+```{r}
+Idents(rna_tcr_subset) <- "cell_type_tr1"
+
+eff_v_mem <- FindMarkers(rna_tcr_subset, ident.1 = "Tr1 Effector", ident.2 = "Tr1 Memory", logfc.threshold = 0)
+saveRDS(eff_v_mem, "../../Processed_Data/FROM_ANALYSIS/Tr1_Heterogeneity/eff_v_mem_DEGs.rds")
+
+naive_vs_eff <- FindMarkers(rna_tcr_subset, ident.1 = "Tr1 Naive-like", ident.2 = "Tr1 Effector",  logfc.threshold = 0)
+saveRDS(naive_vs_eff, "../../Processed_Data/FROM_ANALYSIS/Tr1_Heterogeneity/naive_vs_eff_DEGs.rds")
+```
+
+# 5F Volcano DEGs Effector vs Memory
+```{r, fig.height=3, fig.width=3}
+keyvals <- ifelse(
+    eff_v_mem$avg_log2FC < -0.25, "#5390d9",
+      ifelse(eff_v_mem$avg_log2FC > 0.25, "#4cc9f0",
+        'black'))
+
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == "#5390d9"] <- 'Memory'
+names(keyvals)[keyvals == "#4cc9f0"] <- 'Effector'
+names(keyvals)[keyvals == 'black'] <- 'NS'
+
+tiff("../../Plots/Figure_5/5F_deg_tr1_eff_v_mem.tiff", units="in", width=5, height=6.5, res=300)
+EnhancedVolcano(eff_v_mem,
+    lab = rownames(eff_v_mem),
+    selectLab = c("LAG3","IL10","TNFRSF1B","CTLA4","HAVCR2","MAF","BHLHE40","GZMA",
+                  "KLF2","CCR7","SELL","TCF7","IL7R"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    colCustom = keyvals,
+    FCcutoff = 0.25,
+    pCutoff = 0.05,
+    labSize = 4.0,
+    drawConnectors = TRUE, 
+    xlim = c(-5.,5.),
+    boxedLabels = TRUE
+)
+dev.off()
+```
+
+# 5H Volcano DEGs Naive vs Effector
+```{r, fig.height=3, fig.width=3}
+naive_vs_eff %>% arrange(-avg_log2FC)
+naive_vs_eff %>% arrange(avg_log2FC)
+
+keyvals <- ifelse(
+    naive_vs_eff$avg_log2FC < -0.5, "#4cc9f0",
+      ifelse(naive_vs_eff$avg_log2FC > 0.5, "#b5179e",
+        'black'))
+
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == "#b5179e"] <- 'Naive-like'
+names(keyvals)[keyvals == "#4cc9f0"] <- 'Effector'
+names(keyvals)[keyvals == 'black'] <- 'NS'
+
+tiff("../../Plots/Figure_5/5H_deg_tr1_naive_v_eff.tiff", units="in", width=5, height=6.5, res=300)
+EnhancedVolcano(naive_vs_eff,
+    lab = rownames(naive_vs_eff),
+    selectLab = c("RPL41","ATP5MG","NACA","COX7C","ALDOA","UQCRB","CD3D","PTMS","IFITM1",
+                  "ZBTB20","ATXN1","MAP3K5","ANK3","PLCL1","RUNX1"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    colCustom = keyvals,
+    FCcutoff = 0.5,
+    pCutoff = 0.05,
+    labSize = 4.0,
+    drawConnectors = TRUE, 
+    xlim = c(-6.,6.),
+    boxedLabels = TRUE,
+)
+dev.off()
+```
+
+
+# GSEA of specific Tr1 subsets
+```{r}
+m_df<- msigdbr(species = "Homo sapiens", category = "C7")
+fgsea_sets<- m_df %>% 
+  split(x = .$gene_symbol, f = .$gs_name)
+```
+
+```{r}
+eff_v_mem$stats <- sign(eff_v_mem$avg_log2FC) * (-1) * log2(eff_v_mem$p_val_adj)
+eff_v_mem[eff_v_mem$stats==Inf,"stats"] <- 1000
+eff_v_mem[eff_v_mem$stats==-Inf,"stats"] <- -1000
+
+eff_v_mem$genes <- row.names(eff_v_mem) 
+  
+eff_v_mem.genes <- eff_v_mem %>%
+  arrange(-stats) %>%
+  select(genes, stats) %>%
+  deframe()
+  
+
+eff_v_mem.gsea <- fgsea(fgsea_sets, stats = eff_v_mem.genes, nperm = 1000)
+
+eff_v_mem.gsea %>%
+  arrange(padj)
+```
+
+# 5G GSEA of Tr1 eff v mem
+```{r}
+tiff("../../Plots/Figure_5/5G_gsea_tr1_eff_v_mem.tiff", units="in", width=5.5, height=4, res=300)
+
+plotEnrichment(fgsea_sets[["GOLDRATH_EFF_VS_MEMORY_CD8_TCELL_DN"]], eff_v_mem.genes) +
+  theme(
+    axis.text = element_text(size=14),
+    axis.title = element_text(size=15)
+  ) +
+  ggtitle("GOLDRATH_EFF_VS_MEMORY_CD8_TCELL_DN   ") +
+  xlab("Gene Rank") +
+  ylab("Enrichment Score")
+
+dev.off()
+```
+
+```{r}
+naive_vs_eff$stats <- sign(naive_vs_eff$avg_log2FC) * (-1) * log2(naive_vs_eff$p_val_adj)
+naive_vs_eff[naive_vs_eff$stats==Inf,"stats"] <- 1000
+naive_vs_eff[naive_vs_eff$stats==-Inf,"stats"] <- -1000
+
+naive_vs_eff$genes <- row.names(naive_vs_eff) 
+  
+naive_vs_eff.genes <- naive_vs_eff %>%
+  arrange(-stats) %>%
+  select(genes, stats) %>%
+  deframe()
+  
+
+naive_vs_eff.gsea <- fgsea(fgsea_sets, stats = naive_vs_eff.genes, nperm = 1000)
+
+naive_vs_eff.gsea %>%
+  arrange(padj)
+
+```
+
+# 5I GSEA of Tr1 naive-like v eff
+```{r}
+tiff("../../Plots/Figure_5/5I_gsea_tr1_naive_v_eff.tiff", units="in", width=5, height=4, res=300)
+
+plotEnrichment(fgsea_sets[["GOLDRATH_NAIVE_VS_EFF_CD8_TCELL_DN"]], naive_vs_eff.genes) +
+  theme(
+    axis.text = element_text(size=14),
+    axis.title = element_text(size=16)
+  ) +
+  ggtitle("GOLDRATH_NAIVE_VS_EFF_CD8_TCELL_DN") +
+  xlab("Gene Rank") +
+  ylab("Enrichment Score")
+
+dev.off()
+```
+
+# 5J Tr1 timecourse freq
+```{r, fig.width=8, fig.height=4}
+# Get colors for cell types
+cell_to_match_color <- c("Tr1 Naive-like", "Tr1 Effector", "Tr1 Activated", "Tr1 Memory")
+
+colors <- c("#b5179e","#4cc9f0","#7400b8","#5390d9")
+names(colors) <- cell_to_match_color
+
+# Reorder colors
+ordered_cells <- cell_to_match_color
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+tr1_type_freqs <- rna_tcr_subset@meta.data %>%
+  subset(stim=="unstimulated") %>%
+  group_by(sample, cell_type_tr1) %>%
+  dplyr::summarise(n=n()) %>%
+  as.data.frame() %>%
+  complete(sample, cell_type_tr1) %>%
+  dplyr::mutate(n = replace_na(n, 0))
+
+total_counts <- rna_tcr@meta.data %>% 
+  subset(stim=="unstimulated") %>%
+  group_by(sample) %>%
+  dplyr::summarise(total_cells=n())
+
+tr1_type_freqs <- merge(tr1_type_freqs, total_counts, by="sample")
+
+tr1_type_freqs$freq <- tr1_type_freqs$n / tr1_type_freqs$total_cells * 100
+
+# get days since malaria
+tr1_type_freqs <- merge(tr1_type_freqs, meta, by="sample")
+
+# get baselines
+pre_malaria <- tr1_type_freqs[grep("T1", tr1_type_freqs$sample),]
+pre_malaria$days_since_malaria <- -7
+
+# get post timepoints
+tr1_type_freqs <- tr1_type_freqs[is.na(tr1_type_freqs$days_since_malaria)==FALSE,]
+
+# rbind
+tr1_type_freqs <- rbind(tr1_type_freqs, pre_malaria)
+
+# Remove asymp/adult/no tr1 expansion
+tr1_type_freqs <- tr1_type_freqs[tr1_type_freqs$cohortid%in%c("3125","3158","3377","3149")==FALSE,]
+
+
+# Try to min max scale each cohortid
+tr1_type_freqs <- tr1_type_freqs %>%
+  group_by(cohortid) %>%
+  dplyr::mutate(freq_norm = (freq - min(freq)) / (max(freq) - min(freq)))
+
+tiff("../../Plots/Figure_5/5J_tr1_timecourse_freq.tiff", units="in", width=6, height=3, res=300)
+ggplot(tr1_type_freqs, aes(x=days_since_malaria, y=freq, group=cell_type_tr1, color=cell_type_tr1)) +
+  geom_smooth(size=1, method = "loess", se=FALSE, n=500) +
+  scale_color_manual(values=colors) +
+  geom_point() +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14)
+  ) +
+  xlab("Days Since Malaria") +
+  ylab("% of CD45RA-")
+dev.off()
+```
+
+
+# 5K Tr1 timecourse umap 3481
+```{r, fig.width=12, fig.height=4}
+subset_3481 <- subset(rna_tcr_subset, cohortid=="3481")
+unstim_3481 <- subset(subset_3481, stim=="unstimulated")
+
+all_umap_data <- FetchData(object = unstim_3481, vars = c("UMAP_1", "UMAP_2", "cell_type_tr1","timepoint","CTaa"))
+
+plots <- list()
+
+for (timepoint in unique(unstim_3481$timepoint)) {
+  
+  umap_data <- all_umap_data[all_umap_data$timepoint==timepoint,]
+  
+  clone_data <- umap_data[is.na(umap_data$CTaa)==FALSE,]
+  
+  clone_fam_umap_plot <- geom_line(data=clone_data, 
+                                 aes(x=UMAP_1, y=UMAP_2, group=CTaa), 
+                                 color="black", alpha=1, size=1)
+  
+  
+  # Total UMAP
+  umap_plot <- geom_point(data=umap_data, 
+                          aes(x=UMAP_1, y=UMAP_2, group=cell_type_tr1, color=cell_type_tr1), 
+                          size=1.5, shape=19, alpha=1)
+  
+  plots[[timepoint]] <- local ({
+    ggplot() + 
+    umap_plot + #scale_color_manual(values=cell_colors) +
+    clone_fam_umap_plot + 
+    scale_color_manual(values=colors) +
+    theme_void() +
+    theme(
+      legend.position="none"
+    ) +
+    ylim(-7,7) +
+    xlim(-10,7)
+  })
+  
+}
+
+tiff("../../Plots/Figure_5/5K_tr1_timecourse_umap.tiff", units="in", width=12, height=3, res=300)
+ggarrange(plots[["T1"]], plots[["T2"]], plots[["T3"]], plots[["T5"]], plots[["T6"]], plots[["T7"]],
+          ncol = 6, nrow = 1,
+          align = "h")
+dev.off()
+```
+
+
+
+
+
+

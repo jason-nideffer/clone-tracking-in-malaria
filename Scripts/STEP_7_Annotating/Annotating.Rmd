@@ -1,0 +1,241 @@
+
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(harmony)
+library(RColorBrewer)
+library(ComplexHeatmap)
+library(viridis)
+library(circlize)
+library(dplyr)
+```
+
+
+# Load Seurat Object
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_6_Clustered/rna_tcr_clustered.rds")
+```
+
+# Load modules
+```{r}
+activation_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/activation_modules.rds")
+resting_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/resting_modules.rds")
+th1_and_th17_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/custom_th1_and_th17_modules.rds")
+
+modules <- c(activation_modules, resting_modules,th1_and_th17_modules)
+```
+
+# Score cells
+```{r}
+scaled_gex <- GetAssayData(object = rna_tcr, assay = "RNA", slot = "scale.data")
+scaled_genes <- row.names(scaled_gex)
+
+module_df <- data.frame(row.names = colnames(scaled_gex))
+
+for ( module in  unique(modules)) {
+  
+  genes_in_module <- names(modules[modules==module])
+  
+  # Remove genes that are in the module but not included in the scaled data
+  genes_in_module_and_scaled <- Reduce(intersect,list(genes_in_module,scaled_genes))
+  
+  module_scores <- colMeans(scaled_gex[genes_in_module_and_scaled,])
+  
+  module_df[,as.character(module)] <- module_scores
+
+}
+
+gene_module_assay <- CreateAssayObject(data=as.matrix(t(module_df)))
+
+rna_tcr[["modules"]] <- gene_module_assay
+```
+
+```{r}
+min.max.scale <- function(x){(x-min(x))/(max(x)-min(x))}
+```
+
+# Preview modules scores across clusters
+```{r, fig.width=20}
+for_heat <- module_df
+for_heat$seurat_clusters <- rna_tcr$seurat_clusters
+
+for_heat <- for_heat %>%
+  group_by(seurat_clusters) %>%
+  summarise(across(everything(), mean))
+
+for_heat <- as.data.frame(for_heat)
+
+row_names_to_add_back <- for_heat$seurat_clusters
+
+for_heat <- for_heat[,-c(1)]
+
+for_heat <- sapply(for_heat, min.max.scale)
+
+for_heat <- as.matrix(for_heat)
+
+row.names(for_heat) <- row_names_to_add_back
+
+heatmap(t(for_heat), scale = "none")
+```
+
+
+```{r, fig.width=10}
+ordered_heat <- t(for_heat)
+
+cluster_order <- c(
+  45,82,4,77,12,16,51,8,6,30,3,0,14,15,1,5,57,63,9,64,28,38,83, # Tcm
+  26,61, # Naive
+  44,25,54,22,11,73,10,33,70,17, #Th2
+  20,42,2,19,7,36,37,69,48,41,53,21,52,47, # Th1/Th17
+  27,68,32,67, # Cytotoxic Th1 
+  65,29,34,72, # Tr1
+  23,66,13,80, # Treg
+  18,56,79,55,40,75,78, # IFN-Stimulated
+  49,35,31,62,24,43,60,46,39,59,50,58,71, # TCR-Activated
+  76 # Proliferating
+  )
+
+cluster_order <- as.character(cluster_order)
+
+module_order <- c(
+  "Tcm","Naive","Th2","Th1/Th17","Cytotoxic Th1","Tr1","Treg","IFN-Stimulated","TCR-Activated","Proliferating"
+)
+
+ordered_heat <- ordered_heat[module_order,cluster_order]
+
+subset_colors <- c(
+  rep(1, each=23),
+  rep(2, each=2),
+  rep(3, each=10),
+  rep(4, each=14),
+  rep(5, each=4),
+  rep(6, each=4),
+  rep(7, each=4),
+  rep(8, each=7),
+  rep(9, each=13),
+  rep(10, each=1)
+)
+
+subsets <- c(
+  rep("Tcm", each=23),
+  rep("Naive", each=2),
+  rep("Th2", each=10),
+  rep("Th1/Th17", each=14),
+  rep("Cytotoxic Th1", each=4),
+  rep("Tr1", each=4),
+  rep("Treg", each=4),
+  rep("IFN-Stimulated", each=7),
+  rep("TCR-Activated", each=13),
+  rep("Proliferating", each=1)
+)
+
+
+colColors <- c("#FEE08B","#ffffbf","#FDAE61","#9E0142","#D53E4F","#3288BD","#5E4FA2","#66c2a5","#abdda4","#bebebe")
+
+names(subsets) <- cluster_order
+
+heatmap(ordered_heat, scale = "none", Rowv=NA, Colv=NA, ColSideColors=colColors)
+
+### Complex heatmap
+col <- colorRamp2(c(0,0.2,0.4,0.6,0.8,1), viridis(6))
+
+ha = HeatmapAnnotation(
+    `Activation Status` = anno_block(gp = gpar(fill = colColors)), 
+    height = unit(2, "cm")
+)
+
+heat <- Heatmap(ordered_heat, cluster_rows = FALSE, cluster_columns = FALSE, 
+                column_split = subset_colors, col = col,
+                top_annotation = ha)
+
+tiff("../../Plots/Annotating/module_score_heatmap.tiff", units="in", width=14, height=6, res=400)
+heat
+dev.off()
+```
+
+```{r}
+ordered_heat_th1_th17 <- t(for_heat)
+
+cluster_order_th1_th17 <- c(
+  69,48,19,53,21,52,47, # Th1 
+  20,42,2,41,7,36,37 # Th17
+  
+  )
+
+cluster_order_th1_th17 <- as.character(cluster_order_th1_th17)
+
+module_order_th1_th17 <- c(
+  "Th1","Th17"
+)
+
+ordered_heat_th1_th17 <- ordered_heat_th1_th17[module_order_th1_th17,cluster_order_th1_th17]
+
+subset_colors_th1_th17 <- c(
+  rep(1, each=7),
+  rep(2, each=7)
+)
+
+subsets_th1_th17 <- c(
+  rep("Th1", each=7),
+  rep("Th17", each=7)
+)
+
+
+colColors_th1_th17 <- brewer.pal(2, "Set1")[subset_colors_th1_th17]
+
+names(subsets_th1_th17) <- cluster_order_th1_th17
+
+heatmap(ordered_heat_th1_th17, scale = "none", Rowv=NA, Colv=NA, ColSideColors=colColors_th1_th17)
+
+### Complex heatmap
+colColors <- c("#F46D43","#9E0142")
+
+col <- colorRamp2(c(0,0.2,0.4,0.6,0.8,1), viridis(6))
+
+ha = HeatmapAnnotation(
+    `Activation Status` = anno_block(gp = gpar(fill = colColors)), 
+    height = unit(1, "cm")
+)
+
+heat <- Heatmap(ordered_heat_th1_th17, cluster_rows = FALSE, cluster_columns = FALSE, 
+                column_split = subset_colors_th1_th17, col = col,
+                top_annotation = ha)
+
+tiff("../../Plots/Annotating/module_score_heatmap_th1_17.tiff", units="in", width=6, height=2, res=400)
+heat
+dev.off()
+```
+
+```{r}
+subsets_combined <- subsets[subsets!="Th1/Th17"]
+subsets_combined <- c(subsets_combined, subsets_th1_th17)
+```
+
+# Annotate
+```{r}
+rna_tcr$cell_type <- "remove"
+
+for (cluster in names(subsets_combined)) {
+  
+  subset <- subsets_combined[cluster]
+  
+  rna_tcr@meta.data[rna_tcr@meta.data$seurat_clusters==cluster,"cell_type"] <- subset
+  
+}
+
+
+# Activation status
+rna_tcr$activation_status <- "Resting"
+rna_tcr@meta.data[rna_tcr@meta.data$cell_type=="IFN-Stimulated","activation_status"] <- "IFN-Stimulated"
+rna_tcr@meta.data[rna_tcr@meta.data$cell_type=="TCR-Activated","activation_status"] <- "TCR-Activated"
+rna_tcr@meta.data[rna_tcr@meta.data$cell_type=="Proliferating","activation_status"] <- "Proliferating"
+
+# Print clusters that will be removed
+unique(rna_tcr@meta.data[rna_tcr@meta.data$cell_type=="remove","seurat_clusters"])
+```
+
+# Save annotated Seurat object
+```{r}
+saveRDS(rna_tcr, "../../Processed_Data/FROM_STEP_7_Annotated/rna_tcr_annotated.rds")
+```

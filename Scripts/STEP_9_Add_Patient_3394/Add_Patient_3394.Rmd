@@ -1,0 +1,205 @@
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+```
+
+```{r}
+# Load data
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_8_UMAP/rna_tcr_UMAP.rds")
+subject_3394 <- readRDS("../../Processed_Data/FROM_STEP_5_Scaled/rna_tcr_3394.rds")
+
+# Scale query
+VariableFeatures(subject_3394) <- VariableFeatures(rna_tcr)
+subject_3394 <- ScaleData(subject_3394)
+
+# Find `rna_tcr` variable features that are also in `subject_3394`
+exp_sums <- rowSums(subject_3394@assays$RNA@scale.data)
+shared_features <- names(exp_sums[exp_sums!=0])
+
+# increase future.globals.maxSize
+options(future.globals.maxSize = 2000 * 1024^2) # 2GB
+
+# Find Transfer Anchors
+anchors <- FindTransferAnchors(
+  reference = rna_tcr,
+  query = subject_3394,
+  features = shared_features,
+  normalization.method = "LogNormalize",
+  reference.reduction = "pca",
+  dims = 1:40
+)
+
+saveRDS(anchors, "../../Processed_Data/FROM_STEP_9_Added_3394/transfer_anchors.rds")
+
+anchors <- readRDS("../../Processed_Data/FROM_STEP_9_Added_3394/transfer_anchors.rds")
+
+subject_3394 <- MapQuery(
+  anchorset = anchors,
+  query = subject_3394,
+  reference = rna_tcr,
+  refdata = list(
+    cell_type = "cell_type",
+    seurat_clusters = "seurat_clusters"
+  ),
+  reference.reduction = "pca", 
+  reduction.model = "umap"
+)
+
+saveRDS(subject_3394, "../../Processed_Data/FROM_STEP_9_Added_3394/rna_tcr_3394_ref_mapped.rds")
+```
+
+```{r}
+DimPlot(subject_3394, reduction="ref.umap", group.by="predicted.cell_type", raster=FALSE)
+DimPlot(rna_tcr, reduction="umap", group.by="cell_type", raster=FALSE)
+```
+
+
+# Move ref UMAP to UMAP
+```{r}
+subject_3394[["umap"]] <- subject_3394[["ref.umap"]]
+subject_3394[["pca"]] <- subject_3394[["ref.pca"]]
+```
+
+# Calculate module scores for 3394 before merging
+```{r}
+# Load modules
+activation_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/activation_modules.rds")
+resting_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/resting_modules.rds")
+
+th1_and_th17_modules <- readRDS("../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-3/custom_th1_and_th17_modules.rds")
+
+modules <- c(activation_modules, resting_modules,th1_and_th17_modules)
+
+# Score cells
+scaled_gex <- GetAssayData(object = subject_3394, assay = "RNA", slot = "scale.data")
+scaled_genes <- row.names(scaled_gex)
+
+module_df <- data.frame(row.names = colnames(scaled_gex))
+
+for ( module in  unique(modules)) {
+  
+  genes_in_module <- names(modules[modules==module])
+  
+  # Remove genes that are in the module but not included in the scaled data
+  genes_in_module_and_scaled <- Reduce(intersect,list(genes_in_module,scaled_genes))
+  
+  module_scores <- colMeans(scaled_gex[genes_in_module_and_scaled,])
+  
+  module_df[,as.character(module)] <- module_scores
+
+}
+
+gene_module_assay <- CreateAssayObject(data=as.matrix(t(module_df)))
+
+subject_3394[["modules"]] <- gene_module_assay
+```
+
+# Merge Seurat Objects
+```{r}
+# Label cell_type
+subject_3394$cell_type <- subject_3394$predicted.cell_type
+subject_3394$seurat_clusters <- subject_3394$predicted.seurat_clusters
+
+# Label activation status
+subject_3394$activation_status <- "Resting"
+subject_3394@meta.data[subject_3394@meta.data$cell_type=="IFN-Stimulated","activation_status"] <- "IFN-Stimulated"
+subject_3394@meta.data[subject_3394@meta.data$cell_type=="TCR-Activated","activation_status"] <- "TCR-Activated"
+subject_3394@meta.data[subject_3394@meta.data$cell_type=="Proliferating","activation_status"] <- "Proliferating"
+
+# Merge objects
+combined <- merge(rna_tcr, subject_3394)
+
+# Reduce number of PCA dims for merge
+rna_tcr[["pca"]]@cell.embeddings <- rna_tcr[["pca"]]@cell.embeddings[,1:40]
+rna_tcr[["pca"]]@feature.loadings <- rna_tcr[["pca"]]@feature.loadings[,1:40]
+
+# Add back combined dimensionality reduction
+combined[["umap"]] <- merge(rna_tcr[["umap"]], subject_3394[["umap"]])
+combined[["pca"]] <- merge(rna_tcr[["pca"]], subject_3394[["pca"]])
+
+DimPlot(combined, reduction="umap", group.by="cell_type", raster=FALSE)
+DimPlot(combined, reduction="umap", group.by="seurat_clusters", raster=FALSE, label=TRUE)
+
+DefaultAssay(combined) <- "modules"
+
+FeaturePlot(combined, "Tr1", reduction="umap", raster=FALSE)
+```
+
+# Assign identity based on cluster (for 3394)
+```{r}
+cluster_order <- c(
+  45,82,4,77,12,16,51,8,6,30,3,0,14,15,1,5,57,63,9,64,28,38,83, # Tcm
+  26,61, # Naive
+  44,25,54,22,11,73,10,33,70,17, #Th2
+  20,42,2,19,7,36,37,69,48,41,53,21,52,47, #Th1/Th17
+  27,68,32,67, # Cytotoxic Th1 
+  65,29,34,72, # Tr1
+  23,66,13,80, # Treg
+  18,56,79,55,40,75,78, # IFN-Stimulated
+  49,35,31,62,24,43,60,46,39,59,50,58,71, # TCR-Activated
+  76 # Proliferating
+  )
+
+cluster_order <- as.character(cluster_order)
+
+subsets <- c(
+  rep("Tcm", each=23),
+  rep("Naive", each=2),
+  rep("Th2", each=10),
+  rep("Th1/Th17", each=14),
+  rep("Cytotoxic Th1", each=4),
+  rep("Tr1", each=4),
+  rep("Treg", each=4),
+  rep("IFN-Stimulated", each=7),
+  rep("TCR-Activated", each=13),
+  rep("Proliferating", each=1)
+)
+
+names(subsets) <- cluster_order
+
+cluster_order_th1_th17 <- c(
+  69,48,19,53,21,52,47, # Th1 
+  20,42,2,41,7,36,37 # Th17
+  
+)
+
+cluster_order_th1_th17 <- as.character(cluster_order_th1_th17)
+
+subsets_th1_th17 <- c(
+  rep("Th1", each=7),
+  rep("Th17", each=7)
+)
+
+names(subsets_th1_th17) <- cluster_order_th1_th17
+
+subsets_combined <- subsets[subsets!="Th1/Th17"]
+subsets_combined <- c(subsets_combined, subsets_th1_th17)
+
+for (cluster in names(subsets_combined)) {
+  
+  subset <- subsets_combined[cluster]
+  
+  combined@meta.data[combined@meta.data$seurat_clusters==cluster,"cell_type"] <- subset
+  
+}
+
+
+# Activation status
+combined$activation_status <- "Resting"
+combined@meta.data[combined@meta.data$cell_type=="IFN-Stimulated","activation_status"] <- "IFN-Stimulated"
+combined@meta.data[combined@meta.data$cell_type=="TCR-Activated","activation_status"] <- "TCR-Activated"
+combined@meta.data[combined@meta.data$cell_type=="Proliferating","activation_status"] <- "Proliferating"
+
+```
+
+
+```{r}
+saveRDS(combined, "../../Processed_Data/FROM_STEP_9_Added_3394/rna_tcr_combined.rds")
+```
+
+
+
+

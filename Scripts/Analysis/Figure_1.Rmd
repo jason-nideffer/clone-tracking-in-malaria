@@ -1,0 +1,69 @@
+```{r}
+# Load Packages
+library(Seurat)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_11_Malaria_Specific/rna_tcr_malaria_specific.rds")
+```
+
+## Figure 1C: UMAP colored by cell type
+```{r, fig.width=8, fig.height=6}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","TCR-Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","TCR-Activated","IFN-Stimulated","Proliferating")
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+DefaultAssay(rna_tcr) <- "RNA"
+
+
+tiff("../../Plots/Figure_1/1C_umap_celltypes.tiff", units="in", width=8, height=6, res=300)
+
+DimPlot(rna_tcr, group.by="cell_type", raster=FALSE, cols=colors)
+
+dev.off()
+```
+
+## Figure 1D: Expression of marker genes by cell type
+```{r, fig.height=5, fig.width=12.5}
+Idents(object = rna_tcr) <- "cell_type"
+DefaultAssay(rna_tcr) <- "RNA"
+
+features <- c(
+  "MAF","PRDM1","LAG3","CTLA4","PDCD1","CCR5","CXCR6","GZMA","GZMK",
+  "FOXP3","IKZF2",
+  "IFNGR1","IL18R1","CXCR3","TBX21",
+  "GNLY","GZMB","GZMH","GZMM",
+  "CCR6","RORC",
+  "GATA3","CCR4",
+  "IL7R","CCR7","SELL",
+  "TCF7","THEMIS","TGFBR2",
+  "TNFRSF4","IL2RA",
+  "OAS1","IRF7",
+  "MKI67"
+)
+
+dots <- DotPlot(rna_tcr, 
+                features = features,
+                group.by = "cell_type")
+
+
+tiff("../../Plots/Figure_1/1D_dotplot_expression.tiff", units="in", width=12.5, height=5, res=300)
+
+dots +
+  scale_y_discrete(limits = ordered_cells) +
+  RotatedAxis() +
+  theme(axis.text.y = element_text(size = 16))
+
+dev.off()
+```

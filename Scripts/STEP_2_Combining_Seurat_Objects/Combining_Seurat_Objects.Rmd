@@ -1,0 +1,23 @@
+
+```{r}
+library(Seurat)
+
+file_list <- c(
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_sort_tr1.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3528.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3481.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3410.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3394.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3377.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3354.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3178.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3149.rds",
+  "../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_3158_3125.rds"
+)
+
+seurat_object_list <- lapply(file_list, readRDS)
+
+data.combined <- merge(seurat_object_list[[1]], y = seurat_object_list[-1])
+
+saveRDS(data.combined, file = paste("../../Processed_Data/FROM_STEP_2_Combined/rna_tcr_combined.rds", sep=""))
+```

@@ -1,0 +1,23 @@
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+```
+
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_7_Annotated/rna_tcr_annotated.rds")
+
+rna_tcr <- subset(rna_tcr, cell_type!="remove")
+
+DefaultAssay(rna_tcr) <- "RNA"
+
+rna_tcr <- RunUMAP(rna_tcr, reduction = "pca", dims = 1:40, return.model = TRUE, 
+                   min.dist=0.5, n.neighbors=300, seed.use = 1)
+
+
+saveRDS(rna_tcr, "../../Processed_Data/FROM_STEP_8_UMAP/rna_tcr_UMAP.rds")
+
+```

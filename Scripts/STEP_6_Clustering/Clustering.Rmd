@@ -1,0 +1,26 @@
+
+```{r}
+library(Seurat)
+library(ggplot2)
+```
+
+Initially, I harmonized along the "cohortid" variable and then performed clustering on all the data. The problem with this 
+was that some subjects were stimulated with beads and some were not, and the bead stimulation has a massive effect on transcription.
+As a result, individuals that had no bead stimulated condition had artificially high frequencies of "TCR-Activated" cells due to 
+harmony batch correction.
+
+Below, instead, I try clustering without harmony.
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_5_Scaled/rna_tcr_scaled.rds")
+
+# PCA
+rna_tcr <- RunPCA(rna_tcr)
+
+# Cluster
+rna_tcr <- FindNeighbors(rna_tcr, reduction = "pca", dims = 1:40)
+rna_tcr <- FindClusters(rna_tcr, resolution = 4.0, verbose = FALSE)
+
+saveRDS(rna_tcr, "../../Processed_Data/FROM_STEP_6_Clustered/rna_tcr_clustered.rds")
+```
+

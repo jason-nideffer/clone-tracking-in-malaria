@@ -1,0 +1,1717 @@
+
+```{r}
+# Load Packages
+library(Seurat)
+library(fgsea)
+library(data.table)
+library(harmony)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+library(dplyr)
+library(msigdbr)
+library(scales)
+library(devtools)
+library(EnhancedVolcano)
+library(tibble)
+library(forcats)
+library(ggalluvial)
+library(phenoclone)
+
+# load_all('../../../../TraCR') ## This is just the source code for phenoclone package
+```
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_11_Malaria_Specific/rna_tcr_malaria_specific.rds")
+```
+
+## Figure S1 not created in R
+## Figure S2 not created in R
+## Figure S3 from 'STEP_4_Defining_Gene_Modules'
+## Figure S4 from 'STEP_4_Defining_Gene_Modules'
+
+## Figure S5A: UMAP per participant colored by cell type
+```{r, fig.width=8, fig.height=6}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","TCR-Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","TCR-Activated","IFN-Stimulated","Proliferating")
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+DefaultAssay(rna_tcr) <- "RNA"
+
+
+tiff("../../Plots/Supplementary_Figures/S5A_participant_umap_celltypes.tiff", units="in", width=20, height=4, res=300)
+
+DimPlot(rna_tcr, group.by="cell_type", split.by= "cohortid", raster=FALSE, cols=colors)
+
+dev.off()
+```
+
+## Figure S5B: UMAP per participant colored by stim
+```{r}
+tiff("../../Plots/Supplementary_Figures/S5B_participant_umap_stims.tiff", units="in", width=20, height=4, res=300)
+
+DimPlot(rna_tcr, group.by="stim", split.by= "cohortid", raster=FALSE, 
+        shuffle = TRUE, cols=c("#e9d8a6", # beads
+                               "#b7094c", # iRBCs
+                               "#0091ad"  # Unstimulated
+                               )
+        )
+
+dev.off()
+```
+
+## Figure S5C: UMAP per timepoint (unstim)
+```{r}
+meta_for_timepoints <- read.csv("../../Metadata/tr1_seq_meta_samples.csv")
+meta_for_timepoints <- meta_for_timepoints[is.na(meta_for_timepoints$days_since_malaria)==FALSE,]
+
+baselines <- c("3394_T1","3481_T1","3410_T1","3410_T3","3178_S5","3178_S7","3149_S1","3149_S3",
+               "3354_T1","3354_T3","3354_T5")
+
+d0 <- meta_for_timepoints[meta_for_timepoints$days_since_malaria == 0,"sample"]
+
+d0to7 <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > -1 & meta_for_timepoints$days_since_malaria < 8,
+  "sample"]
+
+d8to30 <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > 7 & meta_for_timepoints$days_since_malaria < 31,
+  "sample"]
+
+d31to60 <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > 30 & meta_for_timepoints$days_since_malaria < 61,
+  "sample"]
+
+d61plus <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > 60,
+  "sample"]
+
+## Making plots
+data_to_plot <- FetchData(object = rna_tcr, vars = c("UMAP_1", "UMAP_2", "cell_type", "sample", "stim"))
+
+data_to_plot <- data_to_plot[data_to_plot$stim=="unstimulated",]
+
+# Baselines
+rna_tcr_baselines <- subset(data_to_plot, sample%in%baselines)
+  
+p_baselines <- ggplot(data = rna_tcr_baselines, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_text(size = 12, color="black"),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+
+# D0 to D7
+rna_tcr_d0to7 <- subset(data_to_plot, sample%in%d0to7)
+  
+p_d0to7 <- ggplot(data = rna_tcr_d0to7, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+# D8 to D30
+rna_tcr_d8to30 <- subset(data_to_plot, sample%in%d8to30)
+  
+p_d8to30<- ggplot(data = rna_tcr_d8to30, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+# D31 to D60
+rna_tcr_d31to60 <- subset(data_to_plot, sample%in%d31to60)
+  
+p_d31to60<- ggplot(data = rna_tcr_d31to60, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+# D61 and on
+rna_tcr_d61plus <- subset(data_to_plot, sample%in%d61plus)
+  
+p_d61plus<- ggplot(data = rna_tcr_d61plus, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+fig <- ggarrange(p_baselines, p_d0to7, p_d8to30, p_d31to60, p_d61plus,
+          ncol = 5, nrow = 1)
+
+tiff("../../Plots/Supplementary_Figures/S5C_umap_timepoints.tiff", units="in", width=13.7, height=4.3, res=300)
+
+fig
+
+dev.off()
+
+```
+
+
+## Figure S5C: UMAP per timepoint (unstim)
+```{r}
+meta_for_timepoints <- read.csv("../../Metadata/tr1_seq_meta_samples.csv")
+meta_for_timepoints <- meta_for_timepoints[is.na(meta_for_timepoints$days_since_malaria)==FALSE,]
+
+baselines <- c("3394_T1","3481_T1","3410_T1","3410_T3","3178_S5","3178_S7","3149_S1","3149_S3",
+               "3354_T1","3354_T3","3354_T5")
+
+d0 <- meta_for_timepoints[meta_for_timepoints$days_since_malaria == 0,"sample"]
+
+d0to7 <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > -1 & meta_for_timepoints$days_since_malaria < 8,
+  "sample"]
+
+d8to30 <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > 7 & meta_for_timepoints$days_since_malaria < 31,
+  "sample"]
+
+d31to60 <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > 30 & meta_for_timepoints$days_since_malaria < 61,
+  "sample"]
+
+d61plus <- meta_for_timepoints[
+  meta_for_timepoints$days_since_malaria > 60,
+  "sample"]
+
+## Making plots
+data_to_plot <- FetchData(object = rna_tcr, vars = c("UMAP_1", "UMAP_2", "cell_type", "sample", "stim"))
+
+data_to_plot <- data_to_plot[data_to_plot$stim=="iRBCs",]
+
+# Baselines
+rna_tcr_baselines <- subset(data_to_plot, sample%in%baselines)
+  
+p_baselines <- ggplot(data = rna_tcr_baselines, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_text(size = 12, color="black"),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+
+# D0 to D7
+rna_tcr_d0to7 <- subset(data_to_plot, sample%in%d0to7)
+  
+p_d0to7 <- ggplot(data = rna_tcr_d0to7, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+# D8 to D30
+rna_tcr_d8to30 <- subset(data_to_plot, sample%in%d8to30)
+  
+p_d8to30<- ggplot(data = rna_tcr_d8to30, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+# D31 to D60
+rna_tcr_d31to60 <- subset(data_to_plot, sample%in%d31to60)
+  
+p_d31to60<- ggplot(data = rna_tcr_d31to60, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+# D61 and on
+rna_tcr_d61plus <- subset(data_to_plot, sample%in%d61plus)
+  
+p_d61plus<- ggplot(data = rna_tcr_d61plus, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  geom_point(size=0.2, alpha=0.5) +
+  scale_color_manual(values = colors) +
+  theme_classic() + 
+  theme(
+    legend.position="none",
+    axis.text.x = element_text(size = 14, color="black"),
+    axis.text.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab(label = "") +
+  xlab(label = "") +
+  xlim(-9,15)
+
+fig <- ggarrange(p_baselines, p_d0to7, p_d8to30, p_d31to60, p_d61plus,
+          ncol = 5, nrow = 1)
+
+tiff("../../Plots/Supplementary_Figures/S5D_umap_timepoints_irbc.tiff", units="in", width=13.7, height=4.3, res=300)
+
+fig
+
+dev.off()
+
+```
+
+## Calculate pop freqs
+
+```{r}
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                     "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                     "3149 _ sort_Non", "3354 _ sort_Non")
+
+pop_freqs <- rna_tcr@meta.data %>%
+  subset(subset=sample%in%exclude_samples==FALSE) %>%
+  group_by(sample, cohortid, cell_type, stim) %>%
+  summarise(n=n()) %>%
+  group_by(sample, cohortid, stim) %>%
+  mutate(total=sum(n))
+
+pop_freqs$freq <- pop_freqs$n / pop_freqs$total * 100
+
+pop_freqs_wide <- pivot_wider(pop_freqs, id_cols = c("sample","cohortid","stim"), values_from = "freq", names_from = "cell_type")
+
+pop_freqs_wide[is.na(pop_freqs_wide)] <- 0
+
+pop_freqs_long <- pivot_longer(pop_freqs_wide, names_to = "cell_type", values_to = "freq", cols = unique(pop_freqs$cell_type))
+
+pop_freqs_long$cell_type <- factor(pop_freqs_long$cell_type, levels=ordered_cells)
+```
+
+## Figure S6: Pop freqs + ITGA2/CXCR5 expression
+```{r, fig.width=3.5, fig.height=4.5}
+tiff("../../Plots/Supplementary_Figures/S6A_pop_freqs.tiff", units="in", width=3.6, height=4.5, res=300)
+
+pop_freqs_long %>%
+  subset(stim=="unstimulated") %>%
+  group_by(cohortid, cell_type) %>%
+  summarise(freq=mean(freq)) %>%
+  ggplot( aes(x=cell_type, y=freq, fill=cell_type)) +
+    geom_boxplot(width=0.8, outlier.alpha = 0) +
+    geom_jitter(color="black", size=1.2, width=0.2, alpha=0.9) +
+    scale_y_continuous(trans = "log2",
+                       breaks = c(0.063,0.25,1,4,16,64)) +
+    scale_fill_manual(values=colors) +
+    theme_classic() + 
+    theme(
+      legend.position="none",
+      axis.text.x = element_text(size = 14, color="black", angle=60, hjust = 1),
+      axis.text.y = element_text(size = 12, color="black"),
+      axis.title.y = element_text(size = 16, color="black"),
+    ) +
+    xlab("") +
+    ylab("% of CD45RA-")
+
+dev.off()
+
+
+# CXCR5 expression
+tiff("../../Plots/Supplementary_Figures/S6B_cxcr5_expression.tiff", units="in", width=7, height=6, res=300)
+
+FeaturePlot(rna_tcr, "CXCR5", raster=FALSE)
+
+dev.off()
+
+# ITGA2 expression
+tiff("../../Plots/Supplementary_Figures/S6C_itga2_expression.tiff", units="in", width=7, height=6, res=300)
+
+FeaturePlot(rna_tcr, "ITGA2", raster=FALSE)
+
+dev.off()
+
+```
+
+## Figure S7: Stim boxplots
+```{r}
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                      "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                      "3149 _ sort_Non", "3354 _ sort_Non")
+
+act_count <- rna_tcr@meta.data %>%
+  subset(sample%in%exclude_samples==FALSE) %>%
+  group_by(sample, cohortid, activation_status, stim) %>%
+  summarise(n=n()) %>%
+  group_by(sample, cohortid, stim) %>%
+  mutate(total=sum(n))
+  
+act_count$freq <- act_count$n / act_count$total *100
+
+act_count <- act_count %>%
+  group_by(cohortid, activation_status, stim) %>%
+  summarise(mean_freq=mean(freq)) %>%
+  subset(activation_status%in%c("TCR-Activated","IFN-Stimulated")) %>%
+  subset(stim != "MNS")
+
+act_count_ifn <- act_count[act_count$activation_status=="IFN-Stimulated",]
+act_count_ifn <- act_count_ifn[act_count_ifn$stim!="bead_stimulated",]
+act_count_ifn <- act_count_ifn[act_count_ifn$cohortid!="3394",]
+act_count_ifn$stim <- factor(act_count_ifn$stim, levels=c("unstimulated","iRBCs"))
+
+act_count_tcr <- act_count[act_count$activation_status=="TCR-Activated",]
+act_count_tcr <- act_count_tcr[act_count_tcr$stim!="bead_stimulated",]
+act_count_tcr <- act_count_tcr[act_count_tcr$cohortid!="3394",]
+act_count_tcr$stim <- factor(act_count_tcr$stim, levels=c("unstimulated","iRBCs"))
+```
+
+```{r, fig.height=2, fig.width=1.5}
+# IFN stimulated
+tiff("../../Plots/Supplementary_Figures/S7B_freq_ifn_stim.tiff", units="in", width=2.5, height=4, res=300)
+
+ggpaired(act_count_ifn, x = "stim", y = "mean_freq", id="cohortid",
+         line.color = "darkgray", line.size = 0.4, fill="stim",
+         palette = c("#0091ad","#b7094c"), width=0.8, size=2) +
+  stat_compare_means(paired = TRUE, label = "p.format") +
+  theme(
+    axis.text.y = element_text(size = 14, color="black"),
+    axis.text.x = element_text(size = 14, color="black", angle=45, hjust=1),
+    axis.title = element_text(size = 16, vjust = 2)
+  ) +
+  ylab("IFN-Stimulated (%)") +
+  scale_x_discrete(labels=c("unstim.","iRBCs")) +
+  ylim(0,17) +
+  xlab("")
+
+dev.off()
+
+# TCR activated
+tiff("../../Plots/Supplementary_Figures/S7A_freq_tcr_act.tiff", units="in", width=2.5, height=4, res=300)
+
+ggpaired(act_count_tcr, x = "stim", y = "mean_freq", id="cohortid",
+         line.color = "gray", line.size = 0.4, fill="stim",
+         palette = c("#0091ad","#b7094c"), width=0.8, size=2) +
+  stat_compare_means(paired = TRUE, label = "p.format") +
+  theme(
+    axis.text.y = element_text(size = 14, color="black"),
+    axis.text.x = element_text(size = 14, color="black", angle=45, hjust=1),
+    axis.title = element_text(size = 16, vjust = 2)
+  ) +
+  ylab("TCR-Activated (%)") +
+  scale_x_discrete(labels=c("unstim.","iRBCs")) +
+  ylim(0,3.1) +
+  xlab("")
+
+dev.off()
+```
+
+# Analyzing the naive response to malaria
+```{r}
+mal_naive <- readRDS("../../Processed_Data/FROM_STEP_13_Malaria_Naive/rna_tcr_MalNaive_ref_mapped_use.rds")
+```
+
+```{r}
+mal_naive@meta.data[mal_naive$seurat_clusters%in%c(19),"cell_type"] <- "Th1"
+mal_naive@meta.data[mal_naive$seurat_clusters%in%c(41),"cell_type"] <- "Th17"
+```
+
+```{r}
+mal_naive <- subset(mal_naive, stim!= "MNS") # remove covid peptide stim
+```
+
+```{r}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","TCR-Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Ugandan"] <- "#E5E4E2"
+colors["Proliferating"] <- "#C0C0C0"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","TCR-Activated","IFN-Stimulated","Proliferating","Ugandan")
+colors <- colors[c(ordered_cells)]
+```
+
+```{r}
+act_count_naive <- mal_naive@meta.data %>%
+  group_by(sample, cohortid, activation_status, stim) %>%
+  summarise(n=n()) %>%
+  group_by(sample, cohortid, stim) %>%
+  mutate(total=sum(n))
+  
+act_count_naive$freq <- act_count_naive$n / act_count_naive$total *100
+
+act_count_naive <- act_count_naive %>%
+  group_by(cohortid, activation_status, stim) %>%
+  summarise(mean_freq=mean(freq)) %>%
+  subset(activation_status%in%c("TCR-Activated","IFN-Stimulated"))
+
+act_count_naive_ifn <- act_count_naive[act_count_naive$activation_status=="IFN-Stimulated",]
+act_count_naive_ifn <- act_count_naive_ifn[act_count_naive_ifn$stim!="bead_stimulated",]
+act_count_naive_ifn <- act_count_naive_ifn[act_count_naive_ifn$cohortid!="3394",]
+act_count_naive_ifn$stim <- factor(act_count_naive_ifn$stim, levels=c("unstimulated","iRBCs"))
+
+act_count_naive_tcr <- act_count_naive[act_count_naive$activation_status=="TCR-Activated",]
+act_count_naive_tcr <- act_count_naive_tcr[act_count_naive_tcr$stim!="bead_stimulated",]
+act_count_naive_tcr <- act_count_naive_tcr[act_count_naive_tcr$cohortid!="3394",]
+act_count_naive_tcr$stim <- factor(act_count_naive_tcr$stim, levels=c("unstimulated","iRBCs"))
+```
+
+## Figure S7: Stim boxplots (malaria naive)
+```{r, fig.height=2, fig.width=1.5}
+# IFN stimulated
+tiff("../../Plots/Supplementary_Figures/S7B_freq_ifn_stim_naive.tiff", units="in", width=2.5, height=4, res=300)
+
+ggpaired(act_count_naive_tcr, x = "stim", y = "mean_freq", id="cohortid",
+         line.color = "darkgray", line.size = 0.4, fill="stim",
+         palette = c("#0091ad","#b7094c"), width=0.8, size=2) +
+  #stat_compare_means(paired = TRUE, label = "p.format") +
+  theme(
+    axis.text.y = element_text(size = 14, color="black"),
+    axis.text.x = element_text(size = 14, color="black", angle=45, hjust=1),
+    axis.title = element_text(size = 16, vjust = 2)
+  ) +
+  ylab("IFN-Stimulated (%)") +
+  scale_x_discrete(labels=c("unstim.","iRBCs")) +
+  ylim(0,17) +
+  xlab("")
+
+dev.off()
+
+# TCR activated
+tiff("../../Plots/Supplementary_Figures/S7A_freq_tcr_act_naive.tiff", units="in", width=2.5, height=4, res=300)
+
+ggpaired(act_count_naive_tcr, x = "stim", y = "mean_freq", id="cohortid",
+         line.color = "gray", line.size = 0.4, fill="stim",
+         palette = c("#0091ad","#b7094c"), width=0.8, size=2) +
+  theme(
+    axis.text.y = element_text(size = 14, color="black"),
+    axis.text.x = element_text(size = 14, color="black", angle=45, hjust=1),
+    axis.title = element_text(size = 16, vjust = 2)
+  ) +
+  ylab("TCR-Activated (%)") +
+  scale_x_discrete(labels=c("unstim.","iRBCs")) +
+  ylim(0,3.1) +
+  xlab("")
+
+dev.off()
+```
+
+# S8A UMAP cell types (naive vs. ugandan)
+```{r}
+mal_naive_umap <- mal_naive@reductions$ref.umap@cell.embeddings
+mal_naive_umap <- as.data.frame(mal_naive_umap)
+colnames(mal_naive_umap) <- c("UMAP_1","UMAP_2")
+mal_naive_umap$cell_type <- mal_naive$cell_type
+
+rna_tcr_umap <- rna_tcr@reductions$umap@cell.embeddings
+rna_tcr_umap <- as.data.frame(rna_tcr_umap)
+rna_tcr_umap$cell_type <- "Ugandan"
+
+umap_df <- rbind(rna_tcr_umap, mal_naive_umap)
+
+tiff("../../Plots/Supplementary_Figures/S8A_naive_umap.tiff", units="in", width=6, height=4, res=300)
+ggplot(umap_df, aes(x=UMAP_1, y=UMAP_2, color=cell_type)) +
+  scale_color_manual(values = colors) +
+  geom_point(size=0.05, alpha=1) +
+  theme_classic()+
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black")
+  ) 
+dev.off()
+```
+
+# Figure S8B Pie plot of naive populations
+```{r}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","TCR-Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","TCR-Activated","IFN-Stimulated","Proliferating")
+colors <- colors[c(ordered_cells)]
+
+# Pie
+pie_data_all <- mal_naive@meta.data %>%
+  #subset(sample%in%exclude_samples==FALSE) %>%
+  subset(stim=="unstimulated") %>%
+  group_by(sample, cohortid, cell_type) %>%
+  summarise(n=n()) %>%
+  group_by(sample, cohortid) %>%
+  mutate(total=sum(n))
+  
+pie_data_all$freq <- pie_data_all$n / pie_data_all$total *100
+
+pie_data_all <- pie_data_all %>%
+  as.data.frame() %>%
+  complete(cell_type, cohortid) %>%
+  group_by(cohortid, cell_type) %>%
+  summarise(mean_freq=mean(freq)) %>%
+  group_by(cell_type) %>%
+  summarise(mean_freq=mean(mean_freq))
+
+# Adjust so sum to 100
+pie_data_all$mean_freq <- (pie_data_all$mean_freq / sum(pie_data_all$mean_freq)) * 100
+
+pie_data_all$label <- round(pie_data_all$mean_freq, 2)
+
+# order
+pie_data_all <- pie_data_all[match(ordered_cells, pie_data_all$cell_type),]
+
+# Get the positions
+pos_df <- pie_data_all %>% 
+  mutate(csum = rev(cumsum(rev(mean_freq))), 
+         pos = mean_freq/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), mean_freq/2, pos))
+
+# Plot
+tiff("../../Plots/Supplementary_Figures/S8B_pie_mal_naive.tiff", units="in", width=6, height=6, res=300)
+
+ggplot(pie_data_all, aes(x="", y=mean_freq, fill=fct_inorder(cell_type))) +
+  geom_col(width = 1, color = NA) +
+  scale_fill_manual(values=unname(colors[ordered_cells])) +
+  coord_polar(theta = "y") +
+  geom_label_repel(data = pos_df,
+                   aes(y = pos, label = paste0(label, "%")),
+                   size = 4.5, nudge_x = 1, show.legend = FALSE,
+                   segment.color="gray") +
+  guides(fill = guide_legend(title = "cell_type")) +
+  theme_void() # remove background, grid, numeric labels
+
+dev.off()
+```
+
+# S8C UMAP Stim (naive vs. ugandan)
+```{r}
+mal_naive_umap <- mal_naive@reductions$ref.umap@cell.embeddings
+mal_naive_umap <- as.data.frame(mal_naive_umap)
+colnames(mal_naive_umap) <- c("UMAP_1","UMAP_2")
+mal_naive_umap$stim <- mal_naive$stim
+
+rna_tcr_umap <- rna_tcr@reductions$umap@cell.embeddings
+rna_tcr_umap <- as.data.frame(rna_tcr_umap)
+rna_tcr_umap$stim <- "Ugandan"
+
+umap_df <- rbind(rna_tcr_umap, mal_naive_umap)
+
+stim_colors <- c("#e9d8a6", # beads
+                 "#b7094c", # iRBCs
+                 "#0091ad", # Unstimulated
+                 "#E5E4E2"
+                               )
+
+names(stim_colors) <- c("beads","iRBCs","unstimulated","Ugandan")
+
+tiff("../../Plots/Supplementary_Figures/S8C_naive_umap_stim.tiff", units="in", width=6, height=4, res=300)
+ggplot(umap_df, aes(x=UMAP_1, y=UMAP_2, color=stim)) +
+  scale_color_manual(values = stim_colors) +
+  geom_point(size=0.05, alpha=1) +
+  theme_classic()+
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black")
+  ) 
+dev.off()
+```
+
+# DGE naive vs ugandan TCR activated cells following iRBC stim
+```{r}
+rna_tcr_irbc_activated <- subset(rna_tcr, stim=="iRBCs" & cell_type=="TCR-Activated")
+naive_irbc_activated <- subset(mal_naive, stim=="iRBCs" & cell_type=="TCR-Activated")
+
+rna_tcr_irbc_activated@meta.data$naive <- "Ugandan"
+naive_irbc_activated@meta.data$naive <- "Malaria Naive"
+
+cell_order_rna_tcr_irbc_activated <- colnames(rna_tcr_irbc_activated@assays$RNA@data)
+rna_tcr_irbc_activated@meta.data <- rna_tcr_irbc_activated@meta.data[cell_order_rna_tcr_irbc_activated,]
+
+irbc_activated <- merge(rna_tcr_irbc_activated, naive_irbc_activated)
+
+
+irbc_activated@meta.data
+# DGE
+Idents(object=irbc_activated) <- "naive"
+DefaultAssay(irbc_activated) <- "RNA"
+naive_v_ugandan <- FindMarkers(irbc_activated, ident.1 = "Malaria Naive", ident.2 = "Ugandan",  logfc.threshold = 0)
+naive_v_ugandan
+```
+
+# S8D DGE malaria-naive vs ugandan
+```{r, fig.width=3, fig.height=4}
+keyvals <- ifelse(
+    naive_v_ugandan$avg_log2FC < -0.5, "#5CC8D7",
+      ifelse(naive_v_ugandan$avg_log2FC > 0.5, "#B1624E",
+        'black'))
+
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == "#5CC8D7"] <- 'Ugandan'
+names(keyvals)[keyvals == "#B1624E"] <- 'Malaria Naive'
+names(keyvals)[keyvals == 'black'] <- 'NS'
+
+tiff("../../Plots/Supplementary_Figures/S8D_deg_irbc_activated_naive_v_ugandan.tiff", units="in", width=4.5, height=6.5, res=300)
+EnhancedVolcano(naive_v_ugandan,
+    lab = rownames(naive_v_ugandan),
+    selectLab = c("UTS2","SH3PXD2A-AS1","MCAM","IL10","IL2","LAG3","CTLA4","TNF","MAF","CSF2","PTMS","HAVCR2","FAS","IL7R","CD40LG"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    colCustom = keyvals,
+    FCcutoff = 0.5,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    drawConnectors = TRUE, 
+    #xlim = c(-8,8),
+    boxedLabels = TRUE
+)
+dev.off()
+```
+
+
+# Figure S9 not from single-cell data
+# Figure S10 not from single-cell data
+
+## S11 Tr1 frequencies over time w/ parasitemia and temperature
+# Visits data
+```{r}
+visits <- read.csv("../../Metadata/PRISM_BC_Visits_022823.csv")
+
+visits$cohortid <- visits$cohortid +3000
+
+columns_to_keep <- c("cohortid","gender","ageyrs","date","qpcr","parasitedensity","temperature","malariacat")
+
+visits <- visits[visits$cohortid%in%unique(rna_tcr$cohortid),columns_to_keep]
+
+visits$date <- as.Date(visits$date, "%d%b%Y")
+
+visits[visits$malariacat!="Malaria","malariacat"] <- "No Malaria" 
+```
+
+```{r}
+meta <- read.csv("../../Metadata/tr1_seq_meta_samples.csv")
+
+sample_dates <- meta[,c("sample","date")]
+```
+
+
+# Tr1 Frequencies
+```{r}
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                     "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                     "3149 _ sort_Non", "3354 _ sort_Non")
+
+unstim <- rna_tcr@meta.data[rna_tcr$stim=="unstimulated",] 
+unstim <- unstim[unstim$sample%in%exclude_samples==FALSE,] 
+
+tr1_freq <- unstim %>%
+  group_by(sample, cohortid, cell_type) %>%
+  summarise(n=n()) %>%
+  group_by(sample, cohortid) %>%
+  mutate(total=sum(n))
+
+# Calculate Freq
+tr1_freq$freq <- tr1_freq$n / tr1_freq$total *100
+
+# Merge sample dates with Tr1 freqs
+tr1_freq <- merge(tr1_freq, sample_dates, by="sample", all.x=TRUE)
+
+# Select Tr1s
+tr1_freq <- tr1_freq[tr1_freq$cell_type=="Tr1",]
+
+# Fix Date
+tr1_freq$date <- as.Date(tr1_freq$date, "%m/%d/%y")
+
+
+```
+
+# S11 3178
+```{r}
+cohortid <- 3178
+
+visits_id <- visits[visits$cohortid==cohortid,]
+visits_id <- visits_id[is.na(visits_id$qpcr)==FALSE,]
+visits_id[visits_id$temperature<37,"temperature"] <- 37
+visits_id[visits_id$temperature>40,"temperature"] <- 40
+visits_id$qpcr <- visits_id$qpcr + 1
+
+tr1_freq_id <- tr1_freq[tr1_freq$cohortid==cohortid,]
+
+# Only include visits before last sample
+last_sample_date <- max(tr1_freq_id$date)
+#first_sample_date <- min(tr1_freq_id$date)
+visits_id <- visits_id[visits_id$date<=last_sample_date,]
+#visits_id <- visits_id[visits_id$date>=last_sample_date,]
+
+plot_limits <- c(min(visits_id$date), max(visits_id$date))
+
+# Parasitemia
+p1 <- ggplot(visits_id, aes(x=date, y=qpcr, color=temperature)) +
+  geom_line(color="gray") +
+  geom_point(aes(shape=malariacat), size=3) +
+  scale_shape_manual(values=c(17, 16))+
+  scale_y_continuous(
+    trans='log10',
+    limits=c(1,1000000)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  scale_colour_gradient(
+    low = "#75a1ff",
+    high = "#c90808",
+    space = "Lab",
+    na.value = "grey50",
+    guide = "colourbar",
+    aesthetics = "colour",
+    name="Temperature",
+    limits = c(37,40)
+  ) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines'),
+    legend.title=element_text(size=14), 
+    legend.text=element_text(size=11)
+  ) +
+  ylab("qPCR") +
+  xlab("")
+
+# Tr1
+p2 <- ggplot(tr1_freq_id, aes(x=date, y=freq, color=cell_type)) +
+  geom_line(color="gray") +
+  geom_point(size=3) +
+  scale_color_manual(values = "black") +
+  scale_y_continuous(
+    limits=c(0,10)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    legend.position = "right",
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab("% Tr1") +
+  xlab("Date")
+
+# plot
+tiff("../../Plots/Supplementary_Figures/S11_tr1_temp_para_3178.tiff", units="in", width=6, height=3, res=300)
+ggarrange(p1, p2,
+          ncol = 1, nrow = 2,
+          align = "v")
+dev.off()
+```
+
+
+# S11 3410
+```{r}
+cohortid <- 3410
+
+visits_id <- visits[visits$cohortid==cohortid,]
+visits_id <- visits_id[is.na(visits_id$qpcr)==FALSE,]
+visits_id[visits_id$temperature<37,"temperature"] <- 37
+visits_id[visits_id$temperature>40,"temperature"] <- 40
+visits_id$qpcr <- visits_id$qpcr + 1
+
+tr1_freq_id <- tr1_freq[tr1_freq$cohortid==cohortid,]
+
+# Only include visits before last sample
+last_sample_date <- max(tr1_freq_id$date)
+#first_sample_date <- min(tr1_freq_id$date)
+visits_id <- visits_id[visits_id$date<=last_sample_date,]
+#visits_id <- visits_id[visits_id$date>=last_sample_date,]
+
+plot_limits <- c(min(visits_id$date), max(visits_id$date))
+
+# Parasitemia
+p1 <- ggplot(visits_id, aes(x=date, y=qpcr, color=temperature)) +
+  geom_line(color="gray") +
+  geom_point(aes(shape=malariacat), size=3) +
+  scale_shape_manual(values=c(17, 16))+
+  scale_y_continuous(
+    trans='log10',
+    limits=c(1,1000000)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  scale_colour_gradient(
+    low = "#75a1ff",
+    high = "#c90808",
+    space = "Lab",
+    na.value = "grey50",
+    guide = "colourbar",
+    aesthetics = "colour",
+    name="Temperature",
+    limits = c(37,40)
+  ) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines'),
+    legend.title=element_text(size=14), 
+    legend.text=element_text(size=11)
+  ) +
+  ylab("qPCR") +
+  xlab("")
+
+# Tr1
+p2 <- ggplot(tr1_freq_id, aes(x=date, y=freq, color=cell_type)) +
+  geom_line(color="gray") +
+  geom_point(size=3) +
+  scale_color_manual(values = "black") +
+  scale_y_continuous(
+    limits=c(0,10)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    legend.position = "right",
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab("% Tr1") +
+  xlab("Date")
+
+# plot
+tiff("../../Plots/Supplementary_Figures/S11_tr1_temp_para_3410.tiff", units="in", width=6, height=3, res=300)
+ggarrange(p1, p2,
+          ncol = 1, nrow = 2,
+          align = "v")
+dev.off()
+```
+
+# S11 3149
+```{r}
+cohortid <- 3149
+
+visits_id <- visits[visits$cohortid==cohortid,]
+visits_id <- visits_id[is.na(visits_id$qpcr)==FALSE,]
+visits_id[visits_id$temperature<37,"temperature"] <- 37
+visits_id[visits_id$temperature>40,"temperature"] <- 40
+visits_id$qpcr <- visits_id$qpcr + 1
+
+tr1_freq_id <- tr1_freq[tr1_freq$cohortid==cohortid,]
+
+# Only include visits before last sample
+last_sample_date <- max(tr1_freq_id$date)
+#first_sample_date <- min(tr1_freq_id$date)
+visits_id <- visits_id[visits_id$date<=last_sample_date,]
+#visits_id <- visits_id[visits_id$date>=last_sample_date,]
+
+plot_limits <- c(min(visits_id$date), max(visits_id$date))
+
+# Parasitemia
+p1 <- ggplot(visits_id, aes(x=date, y=qpcr, color=temperature)) +
+  geom_line(color="gray") +
+  geom_point(aes(shape=malariacat), size=3) +
+  scale_shape_manual(values=c(17, 16))+
+  scale_y_continuous(
+    trans='log10',
+    limits=c(1,1000000)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  scale_colour_gradient(
+    low = "#75a1ff",
+    high = "#c90808",
+    space = "Lab",
+    na.value = "grey50",
+    guide = "colourbar",
+    aesthetics = "colour",
+    name="Temperature",
+    limits = c(37,40)
+  ) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines'),
+    legend.title=element_text(size=14), 
+    legend.text=element_text(size=11)
+  ) +
+  ylab("qPCR") +
+  xlab("")
+
+# Tr1
+p2 <- ggplot(tr1_freq_id, aes(x=date, y=freq, color=cell_type)) +
+  geom_line(color="gray") +
+  geom_point(size=3) +
+  scale_color_manual(values = "black") +
+  scale_y_continuous(
+    limits=c(0,10)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 12, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    legend.position = "right",
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab("% Tr1") +
+  xlab("Date")
+
+# plot
+tiff("../../Plots/Supplementary_Figures/S11_tr1_temp_para_3149.tiff", units="in", width=6, height=3, res=300)
+ggarrange(p1, p2,
+          ncol = 1, nrow = 2,
+          align = "v")
+dev.off()
+```
+
+
+# S11 3354
+```{r}
+cohortid <- 3354
+
+visits_id <- visits[visits$cohortid==cohortid,]
+visits_id <- visits_id[is.na(visits_id$qpcr)==FALSE,]
+visits_id[visits_id$temperature<37,"temperature"] <- 37
+visits_id[visits_id$temperature>40,"temperature"] <- 40
+visits_id$qpcr <- visits_id$qpcr + 1
+
+tr1_freq_id <- tr1_freq[tr1_freq$cohortid==cohortid,]
+
+# Only include visits before last sample
+last_sample_date <- max(tr1_freq_id$date)
+#first_sample_date <- min(tr1_freq_id$date)
+visits_id <- visits_id[visits_id$date<=last_sample_date,]
+#visits_id <- visits_id[visits_id$date>=last_sample_date,]
+
+plot_limits <- c(min(visits_id$date), max(visits_id$date))
+
+# Parasitemia
+p1 <- ggplot(visits_id, aes(x=date, y=qpcr, color=temperature)) +
+  geom_line(color="gray") +
+  geom_point(aes(shape=malariacat), size=3) +
+  scale_shape_manual(values=c(17, 16))+
+  scale_y_continuous(
+    trans='log10',
+    limits=c(1,1000000)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  scale_colour_gradient(
+    low = "#75a1ff",
+    high = "#c90808",
+    space = "Lab",
+    na.value = "grey50",
+    guide = "colourbar",
+    aesthetics = "colour",
+    name="Temperature",
+    limits = c(37,40)
+  ) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines'),
+    legend.title=element_text(size=14), 
+    legend.text=element_text(size=11)
+  ) +
+  ylab("qPCR") +
+  xlab("")
+
+# Tr1
+p2 <- ggplot(tr1_freq_id, aes(x=date, y=freq, color=cell_type)) +
+  geom_line(color="gray") +
+  geom_point(size=3) +
+  scale_color_manual(values = "black") +
+  scale_y_continuous(
+    limits=c(0,10)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    legend.position = "right",
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab("% Tr1") +
+  xlab("Date")
+
+# plot
+tiff("../../Plots/Supplementary_Figures/S11_tr1_temp_para_3354.tiff", units="in", width=6, height=3, res=300)
+ggarrange(p1, p2,
+          ncol = 1, nrow = 2,
+          align = "v")
+dev.off()
+```
+
+# S11 3481
+```{r}
+cohortid <- 3481
+
+visits_id <- visits[visits$cohortid==cohortid,]
+visits_id <- visits_id[is.na(visits_id$qpcr)==FALSE,]
+visits_id[visits_id$temperature<37,"temperature"] <- 37
+visits_id[visits_id$temperature>40,"temperature"] <- 40
+visits_id$qpcr <- visits_id$qpcr + 1
+
+tr1_freq_id <- tr1_freq[tr1_freq$cohortid==cohortid,]
+
+# Only include visits before last sample
+last_sample_date <- max(tr1_freq_id$date)
+#first_sample_date <- min(tr1_freq_id$date)
+visits_id <- visits_id[visits_id$date<=last_sample_date,]
+#visits_id <- visits_id[visits_id$date>=last_sample_date,]
+
+plot_limits <- c(min(visits_id$date), max(visits_id$date))
+
+# Parasitemia
+p1 <- ggplot(visits_id, aes(x=date, y=qpcr, color=temperature)) +
+  geom_line(color="gray") +
+  geom_point(aes(shape=malariacat), size=3) +
+  scale_shape_manual(values=c(17, 16))+
+  scale_y_continuous(
+    trans='log10',
+    limits=c(1,1000000)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  scale_colour_gradient(
+    low = "#75a1ff",
+    high = "#c90808",
+    space = "Lab",
+    na.value = "grey50",
+    guide = "colourbar",
+    aesthetics = "colour",
+    name="Temperature",
+    limits = c(37,40)
+  ) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines'),
+    legend.title=element_text(size=14), 
+    legend.text=element_text(size=11)
+  ) +
+  ylab("qPCR") +
+  xlab("")
+
+# Tr1
+p2 <- ggplot(tr1_freq_id, aes(x=date, y=freq, color=cell_type)) +
+  geom_line(color="gray") +
+  geom_point(size=3) +
+  scale_color_manual(values = "black") +
+  scale_y_continuous(
+    limits=c(0,10)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    legend.position = "right",
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab("% Tr1") +
+  xlab("Date")
+
+# plot
+tiff("../../Plots/Supplementary_Figures/S11_tr1_temp_para_3481.tiff", units="in", width=6, height=3, res=300)
+ggarrange(p1, p2,
+          ncol = 1, nrow = 2,
+          align = "v")
+dev.off()
+```
+
+# S11 3377
+```{r}
+cohortid <- 3377
+
+visits_id <- visits[visits$cohortid==cohortid,]
+visits_id <- visits_id[is.na(visits_id$qpcr)==FALSE,]
+visits_id[visits_id$temperature<37,"temperature"] <- 37
+visits_id[visits_id$temperature>40,"temperature"] <- 40
+visits_id$qpcr <- visits_id$qpcr + 1
+
+tr1_freq_id <- tr1_freq[tr1_freq$cohortid==cohortid,]
+
+# Only include visits before last sample
+last_sample_date <- max(tr1_freq_id$date)
+#first_sample_date <- min(tr1_freq_id$date)
+visits_id <- visits_id[visits_id$date<=last_sample_date,]
+#visits_id <- visits_id[visits_id$date>=last_sample_date,]
+
+plot_limits <- c(min(visits_id$date), max(visits_id$date))
+
+# Parasitemia
+p1 <- ggplot(visits_id, aes(x=date, y=qpcr, color=temperature)) +
+  geom_line(color="gray") +
+  geom_point(aes(shape=malariacat), size=3) +
+  scale_shape_manual(values=c(17, 16))+
+  scale_y_continuous(
+    trans='log10',
+    limits=c(1,1000000)
+  ) +
+  scale_x_date(limits = plot_limits) +
+  scale_colour_gradient(
+    low = "#75a1ff",
+    high = "#c90808",
+    space = "Lab",
+    na.value = "grey50",
+    guide = "colourbar",
+    aesthetics = "colour",
+    name="Temperature",
+    limits = c(37,40)
+  ) +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    plot.margin = unit(c(0,0,0,0), 'lines'),
+    legend.title=element_text(size=14), 
+    legend.text=element_text(size=11)
+  ) +
+  ylab("qPCR") +
+  xlab("")
+
+# Tr1
+p2 <- ggplot(tr1_freq_id, aes(x=date, y=freq, color=cell_type)) +
+  geom_line(color="gray") +
+  geom_point(size=3) +
+  scale_color_manual(values = "black") +
+  scale_y_continuous(
+    limits=c(0,10)
+  ) +
+  scale_x_date(limits = plot_limits, labels=date_format("%Y-%m"), date_breaks="4 months") +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14, color="black"),
+    axis.title = element_text(size = 18, color="black"),
+    legend.position = "right",
+    plot.margin = unit(c(0,0,0,0), 'lines')
+  ) +
+  ylab("% Tr1") +
+  xlab("Date")
+
+# plot
+tiff("../../Plots/Supplementary_Figures/S11_tr1_temp_para_3377.tiff", units="in", width=6.4, height=3, res=300)
+ggarrange(p1, p2,
+          ncol = 1, nrow = 2,
+          align = "v")
+dev.off()
+
+# plot
+tiff("../../Plots/Supplementary_Figures/S11_scale.tiff", units="in", width=6, height=6, res=300)
+ggarrange(p1, p2,
+          ncol = 1, nrow = 2,
+          align = "v")
+dev.off()
+```
+
+
+# Figure S12 not from single-cell data
+# Figure S13 from 'STEP_12_Multiome'
+
+# S14 Do non-Tr1 clones repeatedly expand upon infection?
+
+# S14A (Th2)
+```{r}
+th2_expand_3354 <- expanded_clones(rna_tcr, sample.1 = "3354_T2", sample.2 = "3354_T1", identity = "Th2", minimum_count = 5)
+
+alluvial_plot <- plot_freq(rna_tcr, 
+          th2_expand_3354$CTaa[1:20],
+          c("3354_T1","3354_T2","3354_T3","3354_T4","3354_T5","3354_T6")
+          )
+
+tiff("../../Plots/Supplementary_Figures/S14A_3354_alluvial_th2.tiff", units="in", width=6.7, height=4, res=300)
+
+alluvial_plot  +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 0.02), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 0.02), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 5.5 , y = 0, xend = 5.5, yend = 0.02), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=0.021, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=0.021, label= "malaria\n(day 61)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=5.5, y=0.021, label= "malaria\n(day 148)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-62","15","50","78","134","155")) +
+  scale_y_continuous(breaks=c(0,0.005,0.01,0.015,0.02), labels=c("0.0","0.5","1.0","1.5","2.0"), limits = c(0,0.0215)) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-")
+
+dev.off()
+```
+
+# S14B (Tcm)
+```{r}
+tcm_expand_3354 <- expanded_clones(rna_tcr, sample.1 = "3354_T2", sample.2 = "3354_T1", identity = "Tcm", minimum_count = 5)
+
+alluvial_plot <- plot_freq(rna_tcr, 
+          tcm_expand_3354$CTaa[1:20],
+          c("3354_T1","3354_T2","3354_T3","3354_T4","3354_T5","3354_T6")
+          )
+
+tiff("../../Plots/Supplementary_Figures/S14B_3354_alluvial_tcm.tiff", units="in", width=6.7, height=4, res=300)
+
+alluvial_plot  +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 0.0087), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 0.0087), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 5.5 , y = 0, xend = 5.5, yend = 0.0087), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=0.00925, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=0.00925, label= "malaria\n(day 61)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=5.5, y=0.00925, label= "malaria\n(day 148)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-62","15","50","78","134","155")) +
+  scale_y_continuous(breaks=c(0,0.0025,0.005,0.0075), labels=c("0.00","0.25","0.50","0.75"), limits = c(0,0.0094)) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-") 
+
+dev.off()
+```
+
+# S14C (Th1)
+```{r}
+th1_expand_3354 <- expanded_clones(rna_tcr, sample.1 = "3354_T2", sample.2 = "3354_T1", identity = "Th1", minimum_count = 5)
+
+alluvial_plot <- plot_freq(rna_tcr, 
+          th1_expand_3354$CTaa[1:20],
+          c("3354_T1","3354_T2","3354_T3","3354_T4","3354_T5","3354_T6")
+          )
+
+tiff("../../Plots/Supplementary_Figures/S14C_3354_alluvial_th1.tiff", units="in", width=6.7, height=4, res=300)
+
+alluvial_plot  +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = .0145), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = .0145), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 5.5 , y = 0, xend = 5.5, yend = .0145), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=.0155, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=.0155, label= "malaria\n(day 61)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=5.5, y=.0155, label= "malaria\n(day 148)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-62","15","50","78","134","155")) +
+  scale_y_continuous(breaks=c(0,0.005,0.01,0.015), labels=c("0.0","0.5","1.0","1.5"), limits = c(0,0.016)) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-")
+
+dev.off()
+```
+
+# S14D (Th17)
+```{r}
+th17_expand_3354 <- expanded_clones(rna_tcr, sample.1 = "3354_T2", sample.2 = "3354_T1", identity = "Th17", minimum_count = 5)
+
+alluvial_plot <- plot_freq(rna_tcr, 
+          th17_expand_3354$CTaa[1:20],
+          c("3354_T1","3354_T2","3354_T3","3354_T4","3354_T5","3354_T6")
+          )
+
+tiff("../../Plots/Supplementary_Figures/S14D_3354_alluvial_th17.tiff", units="in", width=6.7, height=4, res=300)
+
+alluvial_plot  +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 0.005), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 0.005), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 5.5 , y = 0, xend = 5.5, yend = 0.005), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=0.0054, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=0.0054, label= "malaria\n(day 61)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=5.5, y=0.0054, label= "malaria\n(day 148)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-62","15","50","78","134","155")) +
+  scale_y_continuous(breaks=c(0,0.002,0.004), labels=c("0.0","0.2","0.4"), limits = c(0,0.00545)) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-") 
+
+dev.off()
+```
+
+# S14E (Cytotoxic Th1)
+```{r}
+cyto_expand_3354 <- expanded_clones(rna_tcr, sample.1 = "3354_T2", sample.2 = "3354_T1", identity = "Cytotoxic Th1", minimum_count = 5)
+
+alluvial_plot <- plot_freq(rna_tcr, 
+          cyto_expand_3354$CTaa[1:20],
+          c("3354_T1","3354_T2","3354_T3","3354_T4","3354_T5","3354_T6")
+          )
+
+tiff("../../Plots/Supplementary_Figures/S14E_3354_alluvial_cyto_th1.tiff", units="in", width=6.7, height=4, res=300)
+
+alluvial_plot  +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 0.04), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 0.04), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 5.5 , y = 0, xend = 5.5, yend = 0.04), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=0.043, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=0.043, label= "malaria\n(day 61)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=5.5, y=0.043, label= "malaria\n(day 148)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-62","15","50","78","134","155")) +
+  scale_y_continuous(breaks=c(0,0.01,0.02,0.03,0.04), labels=c("0","1","2","3","4"), limits = c(0,0.044)) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-")
+
+dev.off()
+```
+
+# S14E (Treg)
+```{r}
+treg_expand_3354 <- expanded_clones(rna_tcr, sample.1 = "3354_T2", sample.2 = "3354_T1", identity = "Treg", minimum_count = 5)
+
+alluvial_plot <- plot_freq(rna_tcr, 
+          treg_expand_3354$CTaa[1:20],
+          c("3354_T1","3354_T2","3354_T3","3354_T4","3354_T5","3354_T6")
+          )
+
+tiff("../../Plots/Supplementary_Figures/S14F_3354_alluvial_treg.tiff", units="in", width=6.7, height=4, res=300)
+
+alluvial_plot  +
+  geom_segment(aes(x = 1.5 , y = 0, xend = 1.5, yend = 0.005), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 3.5 , y = 0, xend = 3.5, yend = 0.005), color="darkred", linetype="dashed", size=1) +
+  geom_segment(aes(x = 5.5 , y = 0, xend = 5.5, yend = 0.005), color="darkred", linetype="dashed", size=1) +
+  annotate("text", x=1.5, y=0.0054, label= "malaria\n(day 0)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=3.5, y=0.0054, label= "malaria\n(day 61)", color="darkred", size=4, fontface = 'italic') + 
+  annotate("text", x=5.5, y=0.0054, label= "malaria\n(day 148)", color="darkred", size=4, fontface = 'italic') + 
+  scale_x_discrete(labels=c("-62","15","50","78","134","155")) +
+  scale_y_continuous(breaks=c(0,0.002,0.004), labels=c("0.0","0.2","0.4"), limits = c(0,0.0054)) +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16)
+  ) +
+  xlab("Days") +
+  ylab("% of CD45RA-")
+
+dev.off()
+```
+
+
+# Sup figures relating to Tr1 heterogeneity
+```{r}
+rna_tcr_subset <- readRDS("../../Processed_Data/FROM_ANALYSIS/Tr1_Heterogeneity/rna_tcr_tr1.rds")
+
+# Load sample meta
+meta <- read.csv("../../Metadata/tr1_seq_meta_samples.csv")
+```
+
+# S15 Tr1 subset frequencies across stimulation conditions
+```{r}
+tr1_subset_freqs <- rna_tcr_subset@meta.data %>%
+  group_by(cohortid, stim, cell_type_tr1) %>%
+  summarise(n=n()) %>%
+  group_by(cohortid, stim) %>%
+  mutate(total=sum(n))
+
+tr1_subset_freqs$freq <- tr1_subset_freqs$n / tr1_subset_freqs$total *100
+
+tiff("../../Plots/Supplementary_Figures/S15_tr1_frequencies_stims.tiff", units="in", width=7.5, height=4, res=300)
+ggplot(tr1_subset_freqs, aes(x=cell_type_tr1, y=freq, fill=stim) ) +
+  geom_boxplot(width=0.8, position = position_dodge(width=0.9)) +
+  geom_point(position = position_dodge(width = 0.9)) +
+  theme_classic() +
+  theme(
+       axis.title = element_text(size=14),
+       axis.text = element_text(size=12)
+       ) +
+  scale_fill_manual(values=c("#e9d8a6","#b7094c","#0091ad")
+                    ) +
+  xlab("") +
+  ylab("Percent of Cells\nfrom Stimulation Condition")
+dev.off()
+
+```
+
+
+# Annotate full dataset with Tr1 subsets
+```{r}
+tr1_barcodes <- row.names(rna_tcr_subset@meta.data)
+
+rna_tcr@meta.data$cell_type_tr1 <- rna_tcr@meta.data$cell_type
+ 
+rna_tcr@meta.data[tr1_barcodes,"cell_type_tr1"] <- rna_tcr_subset@meta.data[tr1_barcodes,"cell_type_tr1"]
+
+rna_tcr@meta.data <- rna_tcr@meta.data[colnames(rna_tcr@assays$RNA@data),]
+```
+
+```{r}
+Idents(rna_tcr) <- "cell_type_tr1" 
+
+DefaultAssay(rna_tcr) <- "RNA"
+tr1_mem_v_th1 <- FindMarkers(rna_tcr, ident.1 = "Tr1 Memory", ident.2 = "Th1", logfc.threshold = 0)
+saveRDS(tr1_mem_v_th1, "../../Processed_Data/FROM_ANALYSIS/Tr1_Heterogeneity/tr1mem_vs_th1_DEGs.rds")
+```
+
+# S16 Volcano Plot Tr1 mem vs Th1
+```{r, fig.height=4, fig.width=3}
+tr1_mem_v_th1 <- readRDS("../../Processed_Data/FROM_ANALYSIS/Tr1_Heterogeneity/tr1mem_vs_th1_DEGs.rds")
+
+keyvals <- ifelse(
+    tr1_mem_v_th1$avg_log2FC < -0.25, "#9f0042",
+      ifelse(tr1_mem_v_th1$avg_log2FC > 0.25, "#3288bd",
+        'black'))
+
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == "#9f0042"] <- 'Th1'
+names(keyvals)[keyvals == "#3288bd"] <- 'Tr1 Memory'
+names(keyvals)[keyvals == 'black'] <- 'NS'
+
+
+tiff("../../Plots/Supplementary_Figures/S16_deg_tr1_mem_v_Th1.tiff", units="in", width=6, height=7.25, res=300)
+EnhancedVolcano(tr1_mem_v_th1,
+    lab = rownames(tr1_mem_v_th1),
+    selectLab = c("LAG3","IL10","CTLA4","MAF","GZMA","GZMK","CXCR6","PTMS","CD4","HAVCR2","PDCD1","TIMD4","TNFRSF1B","CCR5",
+                  "IL7R","GNLY","ANXA1","TIMP1","CEBPD","LGALS3","ITGB1","IL12RB2"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    colCustom = keyvals,
+    FCcutoff = 0.25,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    drawConnectors = TRUE, 
+    xlim = c(-8.2,8.2),
+    boxedLabels = TRUE,
+)
+dev.off()
+```
+
+
+# S17 distribution of cytokine producing cells 
+```{r}
+colors <- c("#fdae61","#fee08b","#9f0042","#f46d43","#d53e4f","#5d4fa2","#3288bd")
+
+# IL10+
+il10 <- subset(rna_tcr, IL10>0)
+
+bar_data <- il10@meta.data %>%
+  subset(clone_family!="Unassigned") %>%
+  group_by(clone_family) %>%
+  summarise(count=n())
+
+bar_data$freq <- bar_data$count / sum(bar_data$count) * 100
+
+bar_data$clone_family <- factor(bar_data$clone_family, levels=c("1","2","3","4","5","6","7"))
+
+tiff("../../Plots/Supplementary_Figures/S17_IL10_across_families.tiff", units="in", width=5, height=4, res=300)
+ggplot(bar_data, aes(x=clone_family, y=freq, fill=clone_family)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values = colors) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=14)
+  ) +
+  ylab("Percent of Cells") +
+  xlab("Clone Family")
+dev.off()
+
+# IFNG+
+ifng <- subset(rna_tcr, IFNG>0)
+
+bar_data <- ifng@meta.data %>%
+  subset(clone_family!="Unassigned") %>%
+  group_by(clone_family) %>%
+  summarise(count=n())
+
+bar_data$freq <- bar_data$count / sum(bar_data$count) * 100
+
+bar_data$clone_family <- factor(bar_data$clone_family, levels=c("1","2","3","4","5","6","7"))
+
+tiff("../../Plots/Supplementary_Figures/S17_IFNG_across_families.tiff", units="in", width=5, height=4, res=300)
+ggplot(bar_data, aes(x=clone_family, y=freq, fill=clone_family)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values = colors) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=14)
+  ) +
+  ylab("Percent of Cells") +
+  xlab("Clone Family")
+dev.off()
+
+# IL10+ IFNG+
+il10_ifng <- subset(rna_tcr, IL10>0 & IFNG>0)
+
+bar_data <- il10_ifng@meta.data %>%
+  subset(clone_family!="Unassigned") %>%
+  group_by(clone_family) %>%
+  summarise(count=n())
+
+bar_data$freq <- bar_data$count / sum(bar_data$count) * 100
+
+bar_data$clone_family <- factor(bar_data$clone_family, levels=c("1","2","3","4","5","6","7"))
+
+bar_data[7,] <- data.frame(clone_family="6", count=0, freq=0)
+
+tiff("../../Plots/Supplementary_Figures/S17_IL10_IFNG_across_families.tiff", units="in", width=5, height=4, res=300)
+ggplot(bar_data, aes(x=clone_family, y=freq, fill=clone_family)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values = colors) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=14)
+  ) +
+  ylab("Percent of Cells") +
+  xlab("Clone Family")
+dev.off()
+
+
+```
+
+
+# Figure S18 not made in in R
+# Figure S19 not made in in R
+
+
+# Percent of TCR paired alpha beta
+```{r}
+not_paired <- rna_tcr@meta.data[rna_tcr@meta.data$CTnt %like% "NA",]
+
+444501 - 86453
+
+not_paired_counts <- not_paired %>%
+  group_by(cohortid, clone_family, CTaa) %>%
+  summarise(n=n())
+
+not_paired_counts[not_paired_counts$clone_family!="Unassigned",]
+not_paired_counts[not_paired_counts$clone_family=="Unassigned",]
+
+check <- rna_tcr@meta.data[rna_tcr@meta.data$clone_family!="Unassigned",] %>%
+  group_by(cohortid, clone_family, CTaa) %>%
+  summarize(n=n())
+
+check[check$CTaa %like% "NA_",]
+check[check$CTaa %like% "_NA",]
+
+5770 - 985
+
+```
+
+# TCR gene usage of malaria-specific clones (for supplementary table)
+```{r}
+mal_specific_tcr_table <- rna_tcr@meta.data %>%
+  subset(malaria_specific=="yes") %>%
+  group_by(cohortid, CTaa, clone_family, CTgene) %>%
+  summarise(n=n())
+
+mal_specific_percent_tr1_th1 <- rna_tcr@meta.data %>%
+  subset(malaria_specific=="yes") %>%
+  subset(sample%like%"sort"==FALSE) %>%
+  group_by(cohortid, CTaa, clone_family, cell_type) %>%
+  summarise(n=n()) %>%
+  subset(cell_type%in%c("IFN-Stimulated","TCR-Activated","Proliferating")==FALSE) %>%
+  group_by(cohortid, CTaa, clone_family) %>%
+  mutate(total=sum(n))
+  
+mal_specific_percent_tr1_th1$percent <- mal_specific_percent_tr1_th1$n / mal_specific_percent_tr1_th1$total *100
+
+mal_specific_percent_tr1_th1 <- subset(mal_specific_percent_tr1_th1, cell_type%in%c("Th1","Tr1"))
+
+mal_specific_percent_tr1_th1
+```
+
+
+
+
+
+
+
+
+

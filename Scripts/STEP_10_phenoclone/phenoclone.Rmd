@@ -1,0 +1,117 @@
+
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(harmony)
+library(devtools)
+library(RColorBrewer)
+library(viridis)
+library(stats4)
+library(ggpubr)
+library(nlme)
+library(EnhancedVolcano)
+library(phenoclone)
+
+# load_all('../../../../TraCR') ## This is just the source code for phenoclone package
+```
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_9_Added_3394/rna_tcr_combined.rds")
+rna_tcr <- subset(rna_tcr, stim!="MNS") # Remove MNS-stimulated cells (for COVID paper)
+```
+
+```{r}
+rna_tcr <- calculate_freq(rna_tcr, 
+                          clonotype_column = "CTaa", 
+                          sample_column = "sample",
+                          cell_type_column = "cell_type",
+                          subject_column = "cohortid")
+
+```
+
+```{r}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","TCR-Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","TCR-Activated","IFN-Stimulated","Proliferating")
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+rna_tcr <- plotting_aesthetics(rna_tcr, 
+                               ordered_cells,
+                               unname(colors))
+
+```
+
+# Cluster clonotypes
+```{r, fig.height=6, fig.width=6}
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                     "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                     "3149 _ sort_Non", "3354 _ sort_Non")
+
+
+family_colors <- unname(colors[c("Th2","Tcm","Th1","Th17","Cytotoxic Th1","Treg","Tr1")]) 
+
+
+clonotype_families <- cluster_clonotypes(rna_tcr, 
+                                         minimum_count = 5, 
+                                         exclude_cell_types = c("TCR-Activated","IFN-Stimulated","Proliferating"),
+                                         exclude_samples = exclude_samples,
+                                         n_families = 7,
+                                         family_colors = family_colors
+                                        )
+
+
+```
+
+# Annotate metadata with clone families
+```{r}
+# Make dataframe from clone families derived from 'cluster_clonotypes'
+clone_fams_df <- as.data.frame(clonotype_families$clone_families)
+
+# Rename column and move row names to column
+colnames(clone_fams_df) <- "clone_family"
+clone_fams_df$subject_clone <- row.names(clone_fams_df)
+
+# Recover CTaa and cohortid
+clone_fams_df <- separate(data=clone_fams_df, col=subject_clone, sep="_", into=c("cohortid","alpha","beta"))
+clone_fams_df$cohortid <- as.integer(clone_fams_df$cohortid)
+clone_fams_df$CTaa <- paste(clone_fams_df$alpha, clone_fams_df$beta, sep="_")
+
+clone_fams_df <- clone_fams_df[,c("cohortid","CTaa","clone_family")]
+
+# Update metadata
+meta <- rna_tcr@meta.data
+meta$rownames <- row.names(meta)
+
+# In case already performed
+meta <- meta %>% 
+ select(-one_of("clone_family"))
+
+meta <- merge(meta, clone_fams_df, by=c("cohortid","CTaa"), all=TRUE)
+
+row.names(meta) <- meta$rownames
+meta <- subset(meta, select=-c(rownames))
+
+rna_tcr@meta.data <- meta
+
+# Labelling cells not assigned to a clone family
+rna_tcr@meta.data[is.na(rna_tcr@meta.data$clone_family),"clone_family"] <- "Unassigned"
+
+```
+
+N=5,770 clonotypes clustered
+
+# Save Object
+```{r}
+saveRDS(rna_tcr, "../../Processed_Data/FROM_STEP_10_Phenoclone/rna_tcr_phenoclone.rds")
+```
+
+

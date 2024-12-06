@@ -1,0 +1,732 @@
+
+```{r}
+library(GenomeInfoDb)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(Seurat)
+library(Signac)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(EnhancedVolcano)
+library(TFBSTools)
+library(RColorBrewer)
+library(tidyr)
+library(stringr)
+library(data.table)
+library(devtools)
+```
+
+```{r}
+# Edit these parameters - this is what makes the code modular
+##########################
+multiome_directories <- c('A1', 'A2', 'A3') # List the directory names you want to analyze
+project_name <- "Patient 3394"
+cohortid <- "3394"
+##########################
+```
+
+```{r}
+# get gene annotations for hg38
+#annotation <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
+#seqlevelsStyle(annotation) <- "UCSC"
+```
+
+```{r}
+individual_seurat_objects <- list()
+cohortid_timepoints <- c()
+
+for (i in 1:length(multiome_directories)) {
+  
+  print(multiome_directories[i])
+  
+  # Load GEX and HASH
+  multiome_dir <- paste('../../../Raw_Sequencing/3394_T1-T3_ATAC/', 
+                      multiome_directories[i], 
+                      '/outs/filtered_feature_bc_matrix.h5', sep = '')
+  
+  multiome_fragpath <- paste('../../../Raw_Sequencing/3394_T1-T3_ATAC/', 
+                           multiome_directories[i], 
+                           '/outs/atac_fragments.tsv.gz', sep = '')
+  
+  data_read <- Read10X_h5(multiome_dir, use.names = TRUE, unique.features = TRUE) # Read data into Seurat
+  
+  # Create first Seurat object
+  multiome_seurat_object <- CreateSeuratObject(
+    counts = data_read$`Gene Expression`,
+    assay = "RNA"
+  )
+  
+  # Label sample
+  multiome_seurat_object@meta.data$sample <- paste(cohortid, multiome_directories[i], sep="_")
+  multiome_seurat_object@meta.data$cohortid <- cohortid
+  multiome_seurat_object@meta.data$timepoint <- multiome_directories[i]
+  
+  # add mitochondrial gene column 
+  multiome_seurat_object[["percent.mt"]] <-PercentageFeatureSet(
+    multiome_seurat_object, 
+    pattern = "^MT-"
+  )
+  
+  # create ATAC assay and add it to the object
+  multiome_seurat_object[["ATAC"]] <- CreateChromatinAssay(
+    counts = data_read$Peaks,
+    sep = c(":", "-"),
+    fragments = multiome_fragpath
+  )
+  
+  # Set default assay to ATAC
+  DefaultAssay(multiome_seurat_object) <- "ATAC"
+  
+  # Make list of seurat objects
+  individual_seurat_objects <- append(individual_seurat_objects, multiome_seurat_object)
+
+}
+```
+
+```{r}
+combined.peaks <- UnifyPeaks(object.list = individual_seurat_objects, mode = "reduce")
+combined.peaks
+```
+
+```{r}
+objects.unified <- list()
+for (object in individual_seurat_objects) {
+  
+  counts <- FeatureMatrix(
+    fragments = Fragments(object),
+    features = combined.peaks,
+    cells = colnames(object)
+  )
+  
+  object[['ATAC']] <- CreateChromatinAssay(counts = counts, fragments=Fragments(object))
+  
+  objects.unified <- append(objects.unified, object)
+  
+}
+```
+
+```{r}
+saveRDS(objects.unified, "../../Processed_Data/FROM_STEP_12_Multiome/object_list.rds")
+```
+
+```{r}
+objects.unified <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/object_list.rds")
+
+## Merge
+data.combined <- merge(objects.unified[[1]], y = objects.unified[-1], add.cell.ids = c("A1","A2","A3"), project = "mitoATAC")
+```
+
+```{r}
+saveRDS(data.combined, "../../Processed_Data/FROM_STEP_12_Multiome/multiome_combined.rds")
+```
+
+```{r}
+data.combined <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/multiome_combined.rds")
+
+data.combined@meta.data
+```
+
+```{r}
+DefaultAssay(data.combined) <- "ATAC"
+
+annotation <- import('/oak/stanford/projects/genomics/references/refdata-cellranger-arc-GRCh38-2020-A-2.0.0/genes/genes.gtf.gz')
+
+genome(annotation) <- "hg38"
+seqlevelsStyle(annotation) <- "UCSC"
+annotation$gene_biotype <- annotation$gene_type
+
+Annotation(data.combined) <- annotation
+
+```
+
+```{r}
+# compute nucleosome signal score per cell
+data.combined <- NucleosomeSignal(object = data.combined)
+
+# compute TSS enrichment score per cell
+data.combined <- TSSEnrichment(object = data.combined, fast = FALSE)
+
+```
+
+```{r}
+VlnPlot(
+  object = data.combined,
+  features = c("nCount_ATAC"),
+  ncol = 1,
+  pt.size = 0
+) + scale_y_continuous(trans = "log10")
+
+VlnPlot(
+  object = data.combined,
+  features = c("nCount_RNA"),
+  ncol = 1,
+  pt.size = 0
+) + scale_y_continuous(trans = "log10")
+
+
+VlnPlot(
+  object = data.combined,
+  features = c("TSS.enrichment", "nucleosome_signal"),
+  ncol = 2,
+  pt.size = 0
+)
+```
+
+```{r}
+data.cleaned <- subset(
+  x = data.combined,
+  subset = nCount_ATAC < 100000 &
+    nCount_RNA < 25000 &
+    nCount_ATAC > 1000 &
+    nCount_RNA > 1000 &
+    nucleosome_signal < 2 &
+    TSS.enrichment > 1
+)
+```
+
+```{r}
+saveRDS(data.cleaned, "../../Processed_Data/FROM_STEP_12_Multiome/multiome_cleaned.rds")
+```
+
+```{r}
+# Load Data
+data.cleaned <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/multiome_cleaned.rds")
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_8_UMAP/rna_tcr_UMAP-7.rds")
+
+rna_tcr@meta.data[rna_tcr$seurat_clusters%in%c(19),"cell_type"] <- "Th1"
+rna_tcr@meta.data[rna_tcr$seurat_clusters%in%c(41),"cell_type"] <- "Th17"
+
+# Normalize RNA of multiome
+DefaultAssay(data.cleaned) <- "RNA"
+data.cleaned <- NormalizeData(data.cleaned)
+
+# Scale multiome
+data.cleaned <- FindVariableFeatures(data.cleaned)
+data.cleaned <- ScaleData(data.cleaned)
+```
+
+```{r}
+rna_tcr_var <- rna_tcr@assays$RNA@meta.features
+rna_tcr_var <- rna_tcr_var[rna_tcr_var$vst.variable==TRUE,c("vst.mean","vst.variance")]
+  
+  
+data.cleaned_var <- data.cleaned@assays$RNA@meta.features
+data.cleaned_var <- data.cleaned_var[data.cleaned_var$vst.variable==TRUE,c("vst.mean","vst.variance")]
+
+variances <- merge(rna_tcr_var, data.cleaned_var, by="row.names")
+
+variances$var_diff <- abs(variances$vst.variance.x - variances$vst.variance.y)
+variances$mean_diff <- abs(variances$vst.mean.x - variances$vst.mean.y)
+
+hist(log10(variances$var_diff), breaks = 50) +abline(v=-1, col="blue")
+hist(log10(variances$mean_diff), breaks = 50) +abline(v=-1, col="blue")
+
+variances <- variances[variances$var_diff<0.5,]
+variances <- variances[variances$mean_diff<0.1,]
+
+features <- variances$Row.names
+```
+
+# Reference map multiome
+```{r}
+# increase future.globals.maxSize
+options(future.globals.maxSize = 2000 * 1024^2) # 2GB
+
+anchors <- FindTransferAnchors(
+  reference = rna_tcr,
+  query = data.cleaned,
+  features = features,
+  normalization.method = "LogNormalize",
+  reference.reduction = "pca",
+  dims = 1:40
+)
+
+saveRDS(anchors, "../../Processed_Data/FROM_STEP_12_Multiome/transfer_anchors.rds")
+
+data.cleaned <- MapQuery(
+  anchorset = anchors,
+  query = data.cleaned,
+  reference = rna_tcr,
+  refdata = list(
+    cell_type = "cell_type",
+    seurat_clusters = "seurat_clusters"
+  ),
+  reference.reduction = "pca", 
+  reduction.model = "umap"
+)
+
+saveRDS(data.cleaned, "../../Processed_Data/FROM_STEP_12_Multiome/multiome_ref_mapped.rds")
+```
+
+```{r, fig.width=8, fig.height=4}
+DimPlot(data.cleaned, group.by="predicted.cell_type", pt.size=0.5)
+DimPlot(rna_tcr, group.by="cell_type", raster=FALSE)
+FeaturePlot(data.cleaned, "IL10", pt.size=0.5, split.by="timepoint")
+```
+
+```{r}
+# 4.2.2-Seurat
+data.refmapped <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/multiome_ref_mapped.rds")
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "ATAC"
+
+jaspar_dir <- "../../Metadata/JASPAR2020_CORE_vertebrates_non-redundant"
+jaspars <- list.files(jaspar_dir)
+
+# Initialize pfm with first jaspar
+jaspar <- jaspars[1]
+
+jaspar_path <- paste(jaspar_dir, jaspar, sep="/")
+pfm <- readJASPARMatrix(jaspar_path, matrixClass="PFM")
+
+# Add the rest
+for (jaspar in jaspars[-1]) {
+  
+  jaspar_path <- paste(jaspar_dir, jaspar, sep="/")
+  to_add <- readJASPARMatrix(jaspar_path, matrixClass="PFM")
+  
+  motif_name <- names(to_add)
+
+  pfm[motif_name] <- to_add
+  
+}
+
+pfm
+
+```
+
+
+```{r}
+# add motif information
+data.refmapped <- AddMotifs(
+  object = data.refmapped,
+  genome = BSgenome.Hsapiens.UCSC.hg38,
+  pfm = pfm
+)
+```
+
+```{r}
+saveRDS(data.refmapped, "../../Processed_Data/FROM_STEP_12_Multiome/multiome_w_motifs.rds")
+```
+
+```{r}
+# 4.1.2
+data.refmapped <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/multiome_w_motifs.rds")
+
+DefaultAssay(data.refmapped) <- "ATAC"
+data.refmapped <- RunTFIDF(data.refmapped)
+data.refmapped <- FindTopFeatures(data.refmapped, min.cutoff = 5)
+
+saveRDS(data.refmapped, "../../Processed_Data/FROM_STEP_12_Multiome/multiome_normalized.rds")
+```
+
+```{r}
+# 4.2.2-Seurat
+main.chroms <- standardChromosomes(BSgenome.Hsapiens.UCSC.hg38)
+keep.peaks <- which(as.character(seqnames(granges(data.refmapped))) %in% main.chroms)
+
+saveRDS(keep.peaks, "../../Processed_Data/FROM_STEP_12_Multiome/keep_peaks.rds")
+```
+
+```{r}
+# 4.1.2
+data.refmapped <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/multiome_normalized.rds")
+keep.peaks <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/keep_peaks.rds")
+
+data.refmapped[["ATAC"]] <- subset(data.refmapped[["ATAC"]], features = rownames(data.refmapped[["ATAC"]])[keep.peaks])
+
+saveRDS(data.refmapped, "../../Processed_Data/FROM_STEP_12_Multiome/multiome_filtered_features.rds")
+```
+
+```{r}
+# 4.2.2-Seurat
+data.refmapped <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/multiome_filtered_features.rds")
+data.refmapped <- RunChromVAR(data.refmapped, BSgenome.Hsapiens.UCSC.hg38)
+saveRDS(data.refmapped, "../../Processed_Data/FROM_STEP_12_Multiome/multiome_chromvar.rds")
+```
+
+### Analysis ###
+
+```{r}
+data.refmapped <- readRDS("../../Processed_Data/FROM_STEP_12_Multiome/multiome_chromvar.rds")
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "chromvar"
+Idents(data.refmapped) <- "predicted.cell_type"
+
+chromvar_markers <- FindMarkers(data.refmapped, ident.1="Tr1")
+
+FeaturePlot(data.refmapped, "TRPS1", split.by="timepoint")
+chromvar_markers["TRPS1",]
+```
+
+# UMAP and cluster based on ATAC
+```{r}
+DefaultAssay(data.refmapped) <- "ATAC"
+data.refmapped <- FindTopFeatures(data.refmapped, min.cutoff = 'q0')
+data.refmapped <- RunSVD(data.refmapped)
+
+DepthCor(data.refmapped)
+
+data.refmapped <- RunUMAP(object = data.refmapped, reduction = 'lsi', dims = 2:30, min.dist = 0.5, n.neighbors = 5)
+data.refmapped <- FindNeighbors(object = data.refmapped, reduction = 'lsi', dims = 2:30)
+data.refmapped <- FindClusters(object = data.refmapped, verbose = FALSE, algorithm = 3, resolution = 3)
+DimPlot(object = data.refmapped, group.by="predicted.cell_type", pt.size=1.2)
+DimPlot(object = data.refmapped, group.by="seurat_clusters", pt.size=1.2, label=TRUE)
+DimPlot(object = data.refmapped, reduction="ref.umap", group.by="predicted.cell_type", pt.size=0.2)
+```
+
+```{r}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","TCR-Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","TCR-Activated","IFN-Stimulated","Proliferating")
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+tiff('../../Plots/Supplementary_Figures/S13A_ATAC_umap_projected.tiff', units="in", width=6, height=4, res=300)
+DimPlot(object = data.refmapped, reduction="ref.umap", group.by="predicted.cell_type", pt.size=0.2,
+        cols=colors)
+dev.off()
+```
+
+```{r}
+tiff('../../Plots/Supplementary_Figures/S13B_ATAC_umap_clusters.tiff', units="in", width=5, height=4, res=300)
+DimPlot(object = data.refmapped, reduction="umap", group.by="seurat_clusters", pt.size=0.2, label = F)
+dev.off()
+```
+
+```{r, fig.width=15}
+cell_freqs_in_clusters <- data.refmapped@meta.data %>%
+  group_by(seurat_clusters, predicted.cell_type) %>%
+  summarise(n=n()) %>%
+  group_by(seurat_clusters) %>%
+  mutate(total=sum(n))
+
+cell_freqs_in_clusters$freq <- cell_freqs_in_clusters$n / cell_freqs_in_clusters$total * 100
+
+ggplot(cell_freqs_in_clusters, aes(x="", y=freq, fill=predicted.cell_type) ) +
+  facet_wrap(~seurat_clusters, scales="free") + 
+  geom_bar(stat="identity", position=position_dodge()) 
+```
+
+```{r}
+data.refmapped$cell_type <- "Tcm"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(17,28),"cell_type"] <- "Tr1"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(18,21,24),"cell_type"] <- "Treg"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(0,2,3,5,7,8,15,20),"cell_type"] <- "Th2"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(13),"cell_type"] <- "Th1"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(1,4,10,16,19),"cell_type"] <- "Th17"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(27),"cell_type"] <- "Cytotoxic Th1"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(26,32),"cell_type"] <- "Tr1 Activated"
+data.refmapped@meta.data[data.refmapped$seurat_clusters%in%c(31),"cell_type"] <- "Proliferating"
+
+data.refmapped$cell_type_tr1 <- data.refmapped$cell_type
+data.refmapped@meta.data[data.refmapped$cell_type_tr1%in%c("Tr1", "Activated Tr1")==FALSE,"cell_type_tr1"] <- "Other"
+
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "RNA"
+FeaturePlot(data.refmapped, features = "PTMS", reduction = "umap")
+```
+
+```{r}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","Tr1 Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","Tr1 Activated","IFN-Stimulated","Proliferating")
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+
+tiff('../../Plots/Supplementary_Figures/S13C_ATAC_umap.tiff', units="in", width=5, height=4, res=300)
+DimPlot(object = data.refmapped, reduction="umap", group.by="cell_type", pt.size=0.2,
+        cols=colors)
+dev.off()
+```
+
+
+```{r}
+peak_matrix <- AverageExpression(data.refmapped, assays = "ATAC", group.by = "cell_type", features = data.refmapped@assays$ATAC@var.features)$ATAC
+
+cols <- colnames(peak_matrix)
+
+# Calculate var, mean, and norm_var
+peak_matrix_w_var <- peak_matrix %>%
+  as.data.frame() %>%
+  rowwise() %>%
+  mutate(variance=var(c(`Tr1 Activated`, `Cytotoxic Th1`, Tcm, Th1, Th17, Th2, Tr1, Treg))) %>%
+  mutate(mean=mean(c(`Tr1 Activated`, `Cytotoxic Th1`, Tcm, Th1, Th17, Th2, Tr1, Treg)))
+
+peak_matrix_w_var$norm_var <- peak_matrix_w_var$variance / peak_matrix_w_var$mean
+
+hist(log(peak_matrix_w_var$norm_var))
+
+# Select high-variance peaks
+variable_peak_matrix <- peak_matrix[log(peak_matrix_w_var$norm_var)>-1,]
+
+# Exclude rows that have na
+variable_peak_matrix <- variable_peak_matrix[complete.cases(variable_peak_matrix), ]
+
+
+# Plot Heatmap
+heatmap(variable_peak_matrix, scale = "row")
+
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "ATAC"
+Idents(data.refmapped) <- "cell_type"
+
+tr1_atac_markers <- FindMarkers(data.refmapped, ident.1="Tr1")
+tr1_atac_markers$closest_gene <- ClosestFeature(data.refmapped, regions = row.names(tr1_atac_markers))$gene_name
+
+tr1_atac_markers[tr1_atac_markers$avg_log2FC>0,]
+tr1_atac_markers[tr1_atac_markers$closest_gene=="IL19",]
+```
+
+```{r, fig.height=9, fig.width=8}
+EnhancedVolcano(tr1_atac_markers,
+    lab = tr1_atac_markers$closest_gene,
+    selectLab = c("IFNG","TRPS1","LAG3"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj')
+```
+
+```{r}
+chromvar_matrix <- AverageExpression(data.refmapped, assays = "chromvar", group.by = "cell_type")$chromvar
+
+heatmap(chromvar_matrix, scale = "none")
+heatmap(chromvar_matrix, scale = "row")
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "chromvar"
+FeaturePlot(data.refmapped, "MAF", reduction = "ref.umap")
+```
+
+```{r, fig.height=9, fig.width=8}
+DefaultAssay(data.refmapped) <- "chromvar"
+Idents(data.refmapped) <- "cell_type"
+
+chromvar_markers <- FindMarkers(data.refmapped, ident.1="Tr1", ident.2=c("Th1"), logfc.threshold = 0)
+
+keyvals <- ifelse(
+    chromvar_markers$avg_log2FC < -0.5 & chromvar_markers$p_val_adj < 0.05, "#9f0042",
+      ifelse(chromvar_markers$avg_log2FC > 0.5 & chromvar_markers$p_val_adj < 0.05, "#3288bd",
+        'black'))
+
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == "#9f0042"] <- 'Th1'
+names(keyvals)[keyvals == "#3288bd"] <- 'Tr1'
+names(keyvals)[keyvals == 'black'] <- 'NS'
+
+tiff('../../Plots/Supplementary_Figures/S13G_chromvar_volcano_tr1_v_th1.tiff', units="in", width=8, height=9, res=300)
+EnhancedVolcano(chromvar_markers,
+    lab = row.names(chromvar_markers),
+    selectLab = c("IRF4","IRF7","IRF8","Stat5a","CTCF",
+                  "RUNX1","EOMES","TBX21","FOS::JUN","BATF","RORC","MAFK","CEBPD","FOSL2"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    colCustom = keyvals,
+    FCcutoff = 0.5,
+    pCutoff = 0.05,
+    drawConnectors = TRUE, 
+    boxedLabels = TRUE
+    )
+dev.off()
+```
+
+
+```{r, fig.height=7, fig.width=5}
+DefaultAssay(data.refmapped) <- "chromvar"
+Idents(data.refmapped) <- "cell_type"
+
+chromvar_markers <- FindMarkers(data.refmapped, ident.1="Tr1 Activated", ident.2 = "Tr1", logfc.threshold = 0)
+
+chromvar_markers
+
+keyvals <- ifelse(
+    chromvar_markers$avg_log2FC < -0.5 & chromvar_markers$p_val_adj < 0.05, "#3288bd",
+      ifelse(chromvar_markers$avg_log2FC > 0.5 & chromvar_markers$p_val_adj < 0.05, "#abdda4",
+        'black'))
+
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == "#3288bd"] <- 'Tr1 Resting'
+names(keyvals)[keyvals == "#abdda4"] <- 'Tr1 Activated'
+names(keyvals)[keyvals == 'black'] <- 'NS'
+
+tiff('../../Plots/Supplementary_Figures/S13H_chromvar_volcano_tr1_activation.tiff', units="in", width=8, height=9, res=300)
+EnhancedVolcano(chromvar_markers,
+    lab = row.names(chromvar_markers), 
+    drawConnectors = T, 
+    boxedLabels = T,
+    selectLab = c("MAF::NFE2","REL","RELA","NFATC1","MAFK","MAFG","NR4A1","BACH1::MAFK","BATF","FOS::JUN","NFKB1","NFKB2","CREB1",
+                  "SNAI1","FOXD2","TCF3","ELK4","MYOD1","ZEB1"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    colCustom = keyvals,
+    FCcutoff = 0.5,
+    pCutoff = 0.05
+    )
+dev.off()
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "ATAC"
+Idents(data.refmapped) <- "predicted.cell_type"
+```
+
+```{r}
+data.refmapped@assays$ATAC@annotation$tx_id <- data.refmapped@assays$ATAC@annotation$transcript_id
+```
+
+### Coverage Plots ###
+```{r}
+# Get colors for cell types
+cell_to_match_color <- c("Th1","Cytotoxic Th1","Th17","Th2","Tcm",
+                         "Naive","Proliferating","Tr1 Activated","IFN-Stimulated","Tr1","Treg")
+
+colors <- brewer.pal(11, "Spectral")
+names(colors) <- cell_to_match_color
+colors["Proliferating"] <- "gray"
+
+# Reorder colors
+ordered_cells <- c("Tr1","Treg","Th1","Cytotoxic Th1","Th17","Th2","Tcm","Naive","Tr1 Activated","IFN-Stimulated","Proliferating")
+ordered_cells <- rev(ordered_cells)
+colors <- colors[c(ordered_cells)]
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "ATAC"
+Idents(data.refmapped) <- "cell_type"
+
+cell_type_order <- c("Tr1","Tr1 Activated","Treg","Th1","Cytotoxic Th1","Th2","Th17","Tcm")
+
+levels(data.refmapped) <- c(cell_type_order, c("Proliferating") )
+
+tiff('../../Plots/Supplementary_Figures/S13D_coverage_IL10.tiff', units="in", width=6, height=4, res=300)
+
+CoveragePlot(
+  object = data.refmapped,
+  idents = cell_type_order, 
+  region = "IL10",
+  annotation = FALSE,
+  peaks = FALSE
+  ) + 
+  scale_fill_manual(values=colors)
+  
+dev.off()
+
+tiff('../../Plots/Supplementary_Figures/S13D_coverage_IL10_annotation.tiff', units="in", width=6, height=6, res=300)
+
+CoveragePlot(
+  object = data.refmapped,
+  idents = cell_type_order, 
+  region = "IL10",
+  annotation = TRUE,
+  peaks = TRUE
+  ) 
+  
+dev.off()
+
+```
+
+
+```{r}
+DefaultAssay(data.refmapped) <- "ATAC"
+Idents(data.refmapped) <- "cell_type"
+
+cell_type_order <- c("Tr1","Tr1 Activated","Treg","Th1","Cytotoxic Th1","Th2","Th17","Tcm")
+
+levels(data.refmapped) <- c(cell_type_order, c("Proliferating") )
+
+#lag3_region <- "chr12-6760000-6800000"
+
+tiff('../../Plots/Supplementary_Figures/S13E_coverage_LAG3.tiff', units="in", width=6, height=4, res=300)
+
+CoveragePlot(
+  object = data.refmapped,
+  idents = cell_type_order, 
+  region = "LAG3",
+  annotation = FALSE,
+  peaks = FALSE
+  ) + 
+  scale_fill_manual(values=colors)
+  
+dev.off()
+
+tiff('../../Plots/Supplementary_Figures/S13E_coverage_LAG3_annotation.tiff', units="in", width=6, height=6, res=300)
+
+CoveragePlot(
+  object = data.refmapped,
+  idents = cell_type_order, 
+  region = "LAG3",
+  annotation = TRUE,
+  peaks = TRUE
+  ) 
+  
+dev.off()
+
+```
+
+```{r}
+DefaultAssay(data.refmapped) <- "ATAC"
+Idents(data.refmapped) <- "cell_type"
+
+cell_type_order <- c("Tr1","Tr1 Activated","Treg","Th1","Cytotoxic Th1","Th2","Th17","Tcm")
+
+levels(data.refmapped) <- c(cell_type_order, c("Proliferating") )
+
+tiff('../../Plots/Supplementary_Figures/S13F_coverage_IFNG.tiff', units="in", width=6, height=4, res=300)
+
+CoveragePlot(
+  object = data.refmapped,
+  idents = cell_type_order, extend.downstream = 5000,
+  region = "IFNG",
+  annotation = FALSE,
+  peaks = FALSE
+  ) + 
+  scale_fill_manual(values=colors)
+  
+dev.off()
+
+tiff('../../Plots/Supplementary_Figures/S13F_coverage_IFNG_annotation.tiff', units="in", width=6, height=6, res=300)
+
+CoveragePlot(
+  object = data.refmapped,
+  idents = cell_type_order, extend.downstream = 5000,
+  region = "IFNG",
+  annotation = TRUE,
+  peaks = TRUE
+  ) 
+  
+dev.off()
+
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,62 @@
+
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(harmony)
+```
+
+# Scaling
+```{r}
+# Load combined seurat object and normalize
+rna_tcr <- readRDS("../../../Processed_Data/FROM_STEP_3_CD4_T_Cells/rna_tcr_cd4.rds")
+rna_tcr <- NormalizeData(rna_tcr)
+rna_tcr <- FindVariableFeatures(rna_tcr, nfeatures = 2000)
+
+# Add important T cell genes to variable features
+# Define hallmark genes 
+hallmark_genes <- c(
+  "FOXP3", "IL2RA", "IZKF2", "CTLA4", "PDCD1", #Treg
+  "IL10", "LAG3", "MAF", "PRDM1",  #Tr1
+  "TBX21", "IFNG", "CXCR3", "GZMB", "GZMH", #Th1
+  "GATA3", "CCR4", "IL4", "IL5", "IL9", "IL4R", "IL17RB", #Th2
+  "IL1R1", "RORA", "CCR6", "RORC", "IL23R", "ELOVL4", "CFH", "EGLN3", "COL5A3", "CTSH" # Th17
+  )
+
+# Ensure that all hallmark genes are included in variable features
+var.feat <- rna_tcr@assays$RNA@var.features
+to_add <- setdiff(hallmark_genes, var.feat)
+print("To add:")
+print(to_add)
+
+rna_tcr@assays$RNA@var.features <- c(var.feat, to_add)
+
+# Remove TCR genes from variable features
+quietTCRgenes <- function(sc) {
+    unwanted_genes <- "TRBV*|^TRBD*|^TRBJ*|^TRDV*|^TRDD*|^TRDJ*|^TRAV*|^TRAJ*|^TRGV*|^TRGJ*"
+    if (inherits(x=sc, what ="Seurat")) {
+        unwanted_genes <- grep(pattern = unwanted_genes, x = sc[["RNA"]]@var.features, value = TRUE)
+        sc[["RNA"]]@var.features <- sc[["RNA"]]@var.features[(sc[["RNA"]]@var.features %in% unwanted_genes)==FALSE]
+    } else {
+        #Bioconductor scran pipelines uses vector of variable genes for DR
+        unwanted_genes <- grep(pattern = unwanted_genes, x = sc, value = TRUE)
+        sc <- sc[sc %!in% unwanted_genes]
+    }
+    return(sc)
+}
+
+rna_tcr <- quietTCRgenes(rna_tcr)
+
+# Scale
+print("Scaling Data...")
+rna_tcr <- ScaleData(rna_tcr)
+
+# Save
+saveRDS(rna_tcr, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-1/rna_tcr_4-1.rds")
+```
+
+
+
+
+
+

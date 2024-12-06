@@ -1,0 +1,119 @@
+
+
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(harmony)
+library(devtools)
+library(RColorBrewer)
+library(viridis)
+library(ggpubr)
+library(tidyverse)
+library(dplyr)
+library(phenoclone)
+ 
+# load_all('../../../../TraCR') ## This is just the source code for phenoclone package
+```
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_10_Phenoclone/rna_tcr_phenoclone.rds")
+```
+
+
+# Identify malaria specific T cells
+```{r}
+exclude_samples <- c("3354 _ sort_Tr1","3410 _ sort_Tr1","3178 _ sort_Tr1", 
+                      "3149 _ sort_Tr1", "3178 _ sort_Non", "3410 _ sort_Non", 
+                      "3149 _ sort_Non", "3354 _ sort_Non")
+
+unstim_rna_tcr <- subset(rna_tcr, stim == "unstimulated")
+unstim_rna_tcr@misc$cell_type_column <- "activation_status"
+clonotype_families_unstim <- cluster_clonotypes(unstim_rna_tcr, 
+                                                minimum_count = 3, 
+                                                exclude_samples = exclude_samples,
+                                                n_families = 7,
+                                                plot=FALSE)
+
+irbc_rna_tcr <- subset(rna_tcr, stim == "iRBCs")
+irbc_rna_tcr@misc$cell_type_column <- "activation_status"
+clonotype_families_irbc <- cluster_clonotypes(irbc_rna_tcr, 
+                                                minimum_count = 3, 
+                                                exclude_samples = exclude_samples,
+                                                n_families = 7,
+                                                plot=FALSE)
+
+unstim_matrix <- clonotype_families_unstim$matrix
+irbc_matrix <- clonotype_families_irbc$matrix
+
+# get clones that are in both stim conditions
+unstim_irbc_shared_clones <- intersect(row.names(unstim_matrix), row.names(irbc_matrix))
+unstim_matrix <- unstim_matrix[unstim_irbc_shared_clones,]
+irbc_matrix <- irbc_matrix[unstim_irbc_shared_clones,colnames(unstim_matrix)]
+
+# Calculate difference
+unstim_irbc_diff <- irbc_matrix - unstim_matrix
+
+#### Color clonotypes by family
+clonotype_families_df <- rna_tcr@meta.data %>% 
+  group_by(cohortid, CTaa, clone_family) %>%
+  summarise() %>%
+  as.data.frame()
+
+row.names(clonotype_families_df) <- paste(clonotype_families_df$cohortid, clonotype_families_df$CTaa, sep="_")
+
+unstim_irbc_diff <- merge(unstim_irbc_diff, clonotype_families_df, by=0)
+####
+
+# Visualize
+ggplot(unstim_irbc_diff, aes(x = `TCR-Activated`)) + 
+  geom_histogram(bins = 20) + 
+  geom_vline(xintercept = 0.4) +
+  theme_classic() +
+  scale_y_log10()
+
+unstim_v_irbc <- data.frame(
+  irbc=irbc_matrix$`TCR-Activated`,
+  unstim=unstim_matrix$`TCR-Activated`,
+  clone_family=unstim_irbc_diff$`clone_family`
+)
+
+
+ggplot(unstim_v_irbc, aes(x = unstim, y = irbc, color=clone_family)) + 
+  geom_jitter(width = 0.025) +
+  scale_color_manual(values=c("#FDAE61","#FEE08B","#9E0142","#F46D43","#D53E4F","#5E4FA2","#3288BD","gray") ) +
+  geom_abline(intercept = 0.45, slope = 1, color="darkred", size=1) +
+  annotate("label",x=0.17, y=0.85, label= "N=39", size=5) + 
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=12)
+  ) +
+  xlim(-0.026,1) +
+  ylim(-0.026,1) +
+  xlab("Frequency TCR-Activated\n(Unstimulated)") +
+  ylab("Frequency TCR-Activated\n(iRBC-stimulated)")
+
+```
+
+# Label Clones
+```{r}
+# Filter
+malaria_specific_clones <- unstim_irbc_diff[unstim_irbc_diff$`TCR-Activated` > 0.4,"Row.names"]
+
+malaria_specific_clones <- data.frame(malaria_specific_clones)
+malaria_specific_clones <- separate(data=malaria_specific_clones, col=malaria_specific_clones, sep="_", into=c("cohortid","alpha","beta"))
+malaria_specific_clones$cohortid <- as.integer(malaria_specific_clones$cohortid)
+malaria_specific_clones$CTaa <- paste(malaria_specific_clones$alpha, malaria_specific_clones$beta, sep="_")
+
+rna_tcr@meta.data$malaria_specific <- "no"
+
+# Assign
+rna_tcr@meta.data[rna_tcr@meta.data$CTaa %in% malaria_specific_clones$CTaa, "malaria_specific"] <- "yes"
+```
+
+```{r}
+saveRDS(rna_tcr, "../../Processed_Data/FROM_STEP_11_Malaria_Specific/rna_tcr_malaria_specific.rds")
+```
+
+

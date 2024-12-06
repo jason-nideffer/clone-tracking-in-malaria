@@ -1,0 +1,27 @@
+```{r}
+library(Seurat)
+library(ggplot2)
+library(harmony)
+```
+
+```{r}
+rna_tcr <- readRDS("../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-1/rna_tcr_4-1.rds")
+
+# PCA
+rna_tcr <- RunPCA(rna_tcr, verbose = FALSE)
+
+# Elbow
+ElbowPlot(rna_tcr, ndims = 30)
+
+# Harmonize
+rna_tcr <- RunHarmony(rna_tcr, "cohortid", plot_convergence = TRUE)
+
+# Cluster 
+rna_tcr <- FindNeighbors(rna_tcr, reduction = "harmony", dims = 1:40)
+rna_tcr <- FindClusters(rna_tcr, resolution = 4.0, verbose = FALSE)
+
+saveRDS(rna_tcr, "../../../Processed_Data/FROM_STEP_4_Defining_Gene_Modules/FROM_STEP_4-2/rna_tcr_4-2.rds")
+```
+
+
+

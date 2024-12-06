@@ -1,0 +1,49 @@
+# Load Packages
+```{r}
+library(Matrix)
+library(Seurat, lib.loc = "/scg/apps/software/r/4.2.2-Seurat/lib")
+library(ggplot2)
+
+library(harmony)
+```
+
+# Load combined seurat object cluster
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_1_Individual_Seurat_Objects/rna_tcr_naive1_naive2.rds")
+
+# RNA Normalization
+DefaultAssay(rna_tcr) <- "RNA"
+rna_tcr <- NormalizeData(rna_tcr)
+rna_tcr <- FindVariableFeatures(rna_tcr)
+rna_tcr <- ScaleData(rna_tcr)
+rna_tcr <- RunPCA(rna_tcr, verbose = FALSE)
+
+# Harmonize
+#rna_tcr <- RunHarmony(rna_tcr, "cohortid", plot_convergence = TRUE)
+
+# Cluster and Project (fewer dims for speed)
+rna_tcr <- FindNeighbors(rna_tcr, reduction = "pca", dims = 1:15)
+rna_tcr <- FindClusters(rna_tcr, resolution = 2.0, verbose = FALSE)
+rna_tcr <- RunUMAP(rna_tcr, reduction = "pca", dims = 1:15)
+
+DimPlot(rna_tcr, label = TRUE)
+FeaturePlot(rna_tcr, "CD3D")
+FeaturePlot(rna_tcr, "CD8A")
+FeaturePlot(rna_tcr, "MS4A1")
+FeaturePlot(rna_tcr, "CD34")
+
+
+saveRDS(rna_tcr, '../../Processed_Data/FROM_STEP_3_CD4_T_Cells/rna_tcr_before_selection_MalNaive.rds')
+```
+
+# Remove non-CD4 T cell clusters
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_3_CD4_T_Cells/rna_tcr_before_selection.rds")
+filtered <- subset(rna_tcr, (seurat_clusters %in% c(28,26)) == FALSE)
+
+saveRDS(filtered, "../../Processed_Data/FROM_STEP_3_CD4_T_Cells/rna_tcr_cd4_MalNaive.rds")
+```
+
+
+
+

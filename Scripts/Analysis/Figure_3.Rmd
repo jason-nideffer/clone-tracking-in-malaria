@@ -1,0 +1,256 @@
+```{r}
+# Load Packages
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(viridis)
+library(circlize)
+library(ComplexHeatmap)
+library(ggpubr)
+library(tidyverse)
+library(dplyr)
+```
+
+```{r}
+rna_tcr <- readRDS("../../Processed_Data/FROM_STEP_11_Malaria_Specific/rna_tcr_malaria_specific.rds")
+```
+
+# 3B Stim UMAP
+```{r}
+tiff("../../Plots/Figure_3/3B_umap_group_by_stim.tiff", units="in", width=8, height=6, res=300)
+
+DimPlot(rna_tcr, group.by="stim", raster=FALSE, 
+        shuffle = TRUE, cols=c("#e9d8a6", # beads
+                               "#b7094c", # iRBCs
+                               "#0091ad"  # Unstimulated
+                               )
+        )
+
+dev.off()
+```
+
+```{r}
+clone_fam_colors <- c(
+  "1"="#FDAE61",
+  "2"="#FEE08B",
+  "3"="#9E0142",
+  "4"="#F46D43",
+  "5"="#D53E4F",
+  "6"="#5E4FA2",
+  "7"="#3288BD"
+)
+```
+
+# 3C Visualize clone families UMAP
+```{r, fig.height=3, fig.width=4.5}
+# Extract data to make UMAP
+umap_data <- FetchData(object = rna_tcr, vars = c("UMAP_1", "UMAP_2", "cell_type","stim","clone_family"))
+
+# Get UMAP
+clone_fam_umap_data <- subset(umap_data, (clone_family!="Unassigned") )
+
+clone_fam_umap_plot <- geom_point(data=clone_fam_umap_data, 
+                                 aes(x=UMAP_1, y=UMAP_2, group=clone_family, color=clone_family), 
+                                 alpha=1, size=0.2)
+
+# Total UMAP
+umap_plot <- geom_point(data=umap_data, aes(x=UMAP_1, y=UMAP_2, group=cell_type), 
+                        color="lightgray", size=0.01, alpha=0.6)
+
+
+tiff("../../Plots/Figure_3/3C_clone_fams_umap.tiff", units="in", width=8, height=6, res=300)
+
+# Plotting
+ggplot() + 
+  umap_plot + 
+  clone_fam_umap_plot + scale_color_manual(values=clone_fam_colors) +
+  theme(
+    # Hide panel borders and remove grid lines
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    # Change axis line
+    axis.line = element_line(colour = "black"),
+    text = element_text(size = 15)
+  )
+
+dev.off()
+```
+
+# 3D
+```{r}
+reorder <- colnames(rna_tcr@assays$RNA@data)
+
+rna_tcr@meta.data <- rna_tcr@meta.data[reorder,]
+
+#rna_tcr <- ScaleData(rna_tcr)
+no_prolif <- subset(rna_tcr, activation_status!="Proliferating")
+
+```
+
+```{r, fig.width=9, fig.height=18}
+col_order <- c(
+  "Resting_2", "Resting_1", "Resting_4", "Resting_3", "Resting_5", "Resting_7", "Resting_6",
+  
+  "TCR-Activated_2", "TCR-Activated_1", "TCR-Activated_4", "TCR-Activated_3", 
+  "TCR-Activated_5", "TCR-Activated_7", "TCR-Activated_6",
+  
+  "IFN-Stimulated_2", "IFN-Stimulated_1", "IFN-Stimulated_4", "IFN-Stimulated_3", 
+  "IFN-Stimulated_5", "IFN-Stimulated_7", "IFN-Stimulated_6"
+  
+) 
+
+
+markers <- c(
+  
+  # General Activated
+  "IRF4","AHR","ICOS","TNFRSF18","MIR155HG","BCL2A1","WARS","EIF5A","PRMT1","STAT5A",
+  
+  # TCR-activated
+  ###Tcm
+   "LMNA","S100A6","DUSP4","TNF","IL2","LTA", 
+  ### Th2
+  "IL4","IL5","IL9","IL13","IL3","CSF2","FASLG","TNFSF8","TNFSF11","ELL2","DUSP6","RGS16","TNFSF14","CD40LG","GZMB",
+  ### Th17
+  "CCL20","IL17A","IL22",
+  ### Th1
+  "IL4I1","IFNG","IL23R","CD28",
+  ###Cytotoxic Th1
+  "NKG7","FCRL3","PLEK","CCL3","CCL3L1","CCL4","CCL4L2","XCL1","KLF12","TNFSF9","EOMES","EGR2",
+  ###Tr1
+  "PRDM1","IL10","IL21","SPHK1","SRGN","TNFRSF1B","TIMD4","SNX9","GCNT1","VAV3","BHLHE40","GPX4","PLAGL1","FOXP1","NFKBIA","NFKB1","ID2","FAS","CTLA4",
+  ###Treg
+  "IL12RB2","BATF","LRRC32","SOCS1","CCR8","IL1R2","TNFRSF8","SGK1","IL21R","TNFRSF4",
+  
+  # General ISG
+  "OAS1","IFIT1","IRF7","ISG15","MX1",
+  
+  # IFN-stimulated
+  ###Tcm
+   
+  ### Th2
+  #"LPP",
+
+  ### Th17
+  "TNFSF13B",
+  
+  ### Th1
+  #"KIAA0319L",
+  
+  ###Cytotoxic Th1
+  "CCL5","GZMH","PRF1","CHST12","MXRA7","CXCR3","CLIC3",
+  
+  ###Tr1
+  "NXPH4","IRF3","CCR1","CXCR6","AKAP5","DLGAP1","FGFR2","FRMD4A","MPP1","EVA1B","C3AR1", 
+  
+  ###Treg
+  "GSN","ATP1B1","GBP1","GBP5","UGP2","STAT1","BCL6"
+  
+) 
+
+
+heat_matrix <- AverageExpression(no_prolif, assays = "RNA", features=markers, return.seurat = F, group.by = c("activation_status", "clone_family"))
+
+heat_matrix_no_unassigned <- heat_matrix$RNA[,!colnames(heat_matrix$RNA) %in% c("TCR-Activated_Unassigned","IFN-Stimulated_Unassigned","Resting_Unassigned")]
+
+heat_df <- heat_matrix_no_unassigned %>%
+  as.data.frame() %>%
+  mutate(gene=rownames(heat_matrix$RNA)) %>%
+  pivot_longer(-gene,names_to = "population", values_to = "value") %>%
+  group_by(gene) %>%
+  mutate(value = as.numeric(scale(value))) 
+
+heat_df[heat_df$value>4,"value"] <- 4
+heat_df[heat_df$value<0,"value"] <- 0
+
+heat_df <- heat_df %>%
+  pivot_wider(names_from = "population", values_from = "value", id_cols = "gene") %>%
+  as.data.frame()
+
+row.names(heat_df) <- heat_df$gene
+heat_df <- select(heat_df, -c(gene))
+
+heat_df <- heat_df[markers, col_order]
+
+heat_df <- data.matrix(heat_df)
+
+col_splits <- c(rep(0, 7),rep(1, 7),rep(2, 7))
+
+row_splits <- c(rep(0, 10),rep(1, 6),rep(2, 15),rep(3, 4),
+                rep(4, 3),rep(5, 12),rep(6, 19),
+                rep(7, 10),rep(8, 5),rep(9, 1),rep(10, 7),
+                rep(11, 11),rep(12, 7))
+
+col <- colorRamp2(c(0,1,2,3,4), viridis(5))
+
+fam_anno_fill_colors <- c(
+  "#FEE08B","#FDAE61","#F46D43","#9E0142","#D53E4F","#3288BD","#5E4FA2",
+  "#FEE08B","#FDAE61","#F46D43","#9E0142","#D53E4F","#3288BD","#5E4FA2",
+  "#FEE08B","#FDAE61","#F46D43","#9E0142","#D53E4F","#3288BD","#5E4FA2"
+)
+
+fam_anno_text_colors <- c(
+  "black","black","black","gray","black","black","gray",
+  "black","black","black","gray","black","black","gray",
+  "black","black","black","gray","black","black","gray"
+)
+
+
+ha = HeatmapAnnotation(
+    `Activation Status` = anno_block(gp = gpar(fill = c(4,2,3)), labels = c("Resting", "TCR-Actviated", "IFN-Stimualted" )), 
+    `Clone Family` =  anno_text(c(2,1,4,3,5,7,6,2,1,4,3,5,7,6,2,1,4,3,5,7,6), 
+                                location = 0.5, just = "center", rot=0,
+                                gp = gpar(fill = fam_anno_fill_colors, col = fam_anno_text_colors, border = "black", fontsize=16)
+                                ),
+    height = unit(2, "cm")
+)
+
+heat <- Heatmap(heat_df, cluster_rows = FALSE, cluster_columns = FALSE, col=col,
+                column_split = col_splits, row_split = row_splits,
+                top_annotation = ha)
+
+
+tiff("../../Plots/Figure_3/3D_subset_state_gene_heatmap.tiff", units="in", width=9, height=20, res=300)
+heat
+dev.off()
+```
+
+# Tr1 Clone activation iRBC vs. resting
+```{r}
+tr1_clones <- subset(rna_tcr, clone_family=="7")
+
+Idents(tr1_clones) <- "stim"
+tr1_iRBC_vs_unstim <- FindMarkers(tr1_clones, ident.1 = "iRBCs", ident.2 = "unstimulated", logfc.threshold = 0)
+
+tr1_iRBC_vs_unstim
+```
+
+```{r, fig.width=6, fig.height=6}
+keyvals <- ifelse(
+    tr1_iRBC_vs_unstim$avg_log2FC < -0.5, "#0091ad",
+      ifelse(tr1_iRBC_vs_unstim$avg_log2FC > 0.5, "#b7094c",
+        'black'))
+
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == "#0091ad"] <- 'unstimulated'
+names(keyvals)[keyvals == "#b7094c"] <- 'iRBCs'
+names(keyvals)[keyvals == 'black'] <- 'NS'
+
+tiff("../../Plots/Activation/deg_tr1_clones_iRBC_v_unstim.tiff", units="in", width=4.5, height=6.5, res=400)
+EnhancedVolcano(tr1_iRBC_vs_unstim,
+    lab = rownames(tr1_iRBC_vs_unstim),
+    selectLab = c("IFNG","IRF4","IL2RA","BCL2A1","NFKB1","RELB","CCL4","TNFRSF9","TNFRSF4","NFKBIA","MIR155HG",
+                  "PLAAT4"),
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    colCustom = keyvals,
+    FCcutoff = 0.5,
+    pCutoff = 0.05,
+    labSize = 4.0,
+    drawConnectors = TRUE, 
+    xlim = c(-1.5,1.5),
+    boxedLabels = TRUE
+)
+dev.off()
+```
