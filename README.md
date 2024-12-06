@@ -8,7 +8,9 @@ A link to the associated manuscript will be provided when available.
 
 ## Data Access
 
-Raw data are publicly available from NCBI (BioProject PRJNA1129481). Processed data can be made avaialble upon request.
+Raw data are publicly available from NCBI (BioProject PRJNA1129481). 
+
+Processed data are available from Dryad (https://doi.org/10.5061/dryad.59zw3r2jw).
 
 ## Getting help
 
